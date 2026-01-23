@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
-const MIN_YEAR = 2026;
+type Status = "pending" | "approved";
+type Profile = { role: string; is_active: boolean; full_name: string | null };
+type Emp = { user_id: string; full_name: string };
 
 const THEME = {
   bg: "#0b1220",
@@ -16,66 +18,120 @@ const THEME = {
   red: "#b40000",
   green: "#22c55e",
   amber: "#f59e0b",
-  blue: "#60a5fa",
 };
 
-const S = {
-  page: { minHeight: "100vh", background: THEME.bg, color: THEME.text, padding: 18, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" } as React.CSSProperties,
-  container: { maxWidth: 1100, margin: "18px auto", background: THEME.surface, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 18, boxShadow: "0 10px 30px rgba(0,0,0,0.25)" } as React.CSSProperties,
-  h1: { margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: -0.3 } as React.CSSProperties,
-  sub: { marginTop: 8, color: THEME.sub } as React.CSSProperties,
-  card: { background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 14, boxShadow: "0 6px 16px rgba(0,0,0,0.18)" } as React.CSSProperties,
-  row: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" } as React.CSSProperties,
-  label: { display: "block", fontWeight: 900, marginBottom: 6, color: THEME.sub } as React.CSSProperties,
-  input: { width: "100%", padding: 10, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" } as React.CSSProperties,
-  btnPrimary: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.red}`, background: THEME.red, color: "#fff", cursor: "pointer" } as React.CSSProperties,
-  btnGhost: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, cursor: "pointer" } as React.CSSProperties,
-  btnOk: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.green}`, background: "transparent", color: THEME.text, cursor: "pointer" } as React.CSSProperties,
-  btnWarn: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.amber}`, background: "transparent", color: THEME.text, cursor: "pointer" } as React.CSSProperties,
-  sep: { height: 1, background: THEME.border, margin: "14px 0" } as React.CSSProperties,
-  msg: { marginTop: 12, padding: "10px 12px", borderRadius: 12, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800 } as React.CSSProperties,
-  link: { color: THEME.sub, fontWeight: 900, textDecoration: "none" } as React.CSSProperties,
-  badge: (color: string) => ({ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 12px", borderRadius: 999, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 900 } as React.CSSProperties),
-  dot: (color: string) => ({ width: 10, height: 10, borderRadius: 999, background: color, boxShadow: "0 0 0 4px rgba(255,255,255,0.03)" } as React.CSSProperties),
+const S: any = {
+  page: {
+    minHeight: "100vh",
+    background: THEME.bg,
+    color: THEME.text,
+    padding: 18,
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+  },
+  container: {
+    maxWidth: 1100,
+    margin: "18px auto",
+    background: THEME.surface,
+    border: `1px solid ${THEME.border}`,
+    borderRadius: 18,
+    padding: 18,
+    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+  },
+  top: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" },
+  brand: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  logo: { width: 220, height: "auto", display: "block", filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))" },
+  h1: { margin: 0, fontSize: 28, fontWeight: 900, letterSpacing: -0.3 },
+  sub: { marginTop: 6, color: THEME.sub, fontWeight: 800 },
+
+  card: { background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 14, marginTop: 14 },
+  label: { display: "block", fontWeight: 900, marginBottom: 6, color: THEME.sub },
+  input: {
+    width: "100%",
+    padding: 12,
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.card2,
+    color: THEME.text,
+    outline: "none",
+  },
+  row: { display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "end" },
+  rowBtns: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
+
+  btnPrimary: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.red}`, background: THEME.red, color: "#fff", cursor: "pointer" },
+  btnGhost: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, cursor: "pointer" },
+  btnOk: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.green}`, background: "transparent", color: THEME.text, cursor: "pointer" },
+  btnWarn: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.amber}`, background: "transparent", color: THEME.text, cursor: "pointer" },
+
+  msg: { marginTop: 12, padding: "10px 12px", borderRadius: 12, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800 },
+
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 12, marginTop: 14 },
+
+  monthCard: {
+    background: THEME.card2,
+    border: `1px solid ${THEME.border}`,
+    borderRadius: 14,
+    padding: 12,
+  },
+
+  badge: (status: Status) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 12px",
+    borderRadius: 999,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.card,
+    fontWeight: 900,
+  }),
+  dot: (color: string) => ({ width: 10, height: 10, borderRadius: 999, background: color }),
+  link: { color: THEME.sub, fontWeight: 900, textDecoration: "none" },
 };
 
-type Profile = { role: string; is_active: boolean; full_name: string | null };
-type Emp = { user_id: string; full_name: string };
-type SummaryRow = {
-  user_id: string;
-  full_name: string;
-  total_hours: number;
-  approved_hours: number;
-  pending_hours: number;
-  approved_months: number;
-  pending_months: number;
-};
-
-function currentYear() {
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+function nowYear() {
   return new Date().getFullYear();
 }
-function monthsOfYear(year: number) {
-  const now = new Date();
-  const maxMonth = year === now.getFullYear() ? now.getMonth() + 1 : 12;
-  const out: string[] = [];
-  for (let m = 1; m <= maxMonth; m++) out.push(`${year}-${String(m).padStart(2, "0")}`);
-  return out;
+function monthKey(year: number, m: number) {
+  return `${year}-${pad2(m)}`;
 }
+const MONTHS_FR = [
+  "Janvier",
+  "Février",
+  "Mars",
+  "Avril",
+  "Mai",
+  "Juin",
+  "Juillet",
+  "Août",
+  "Septembre",
+  "Octobre",
+  "Novembre",
+  "Décembre",
+];
 
-async function downloadWithToken(accessToken: string, url: string, fileName: string) {
+async function downloadWithToken(accessToken: string, url: string, fileName: string, openInNewTab = false) {
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));
     throw new Error(j?.error || res.statusText);
   }
   const blob = await res.blob();
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+  const objUrl = URL.createObjectURL(blob);
+
+  if (openInNewTab) {
+    window.open(objUrl, "_blank", "noopener,noreferrer");
+  } else {
+    const a = document.createElement("a");
+    a.href = objUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  setTimeout(() => URL.revokeObjectURL(objUrl), 30000);
 }
 
 export default function AdminBordereauxPage() {
@@ -83,75 +139,65 @@ export default function AdminBordereauxPage() {
   const [session, setSession] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
 
-  const yNow = currentYear();
-  const [year, setYear] = useState<number>(Math.max(MIN_YEAR, yNow));
-  const [employee, setEmployee] = useState<string>("all");
-  const [month, setMonth] = useState<string>(`${Math.max(MIN_YEAR, yNow)}-01`);
-
-  const months = useMemo(() => monthsOfYear(year), [year]);
-
   const [employees, setEmployees] = useState<Emp[]>([]);
-  const empMap = useMemo(() => new Map(employees.map((e) => [e.user_id, e.full_name])), [employees]);
+  const [employee, setEmployee] = useState<string>(""); // user_id
+  const [year, setYear] = useState<number>(Math.max(2026, nowYear()));
 
-  const [statusMap, setStatusMap] = useState<Map<string, "pending" | "approved">>(new Map()); // month -> status (selected employee)
-  const [summary, setSummary] = useState<SummaryRow[]>([]);
+  // ✅ plus de Map => Record (plus simple + zéro bug TS)
+  const [statusByMonth, setStatusByMonth] = useState<Record<string, Status>>({});
+
   const [msg, setMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const isAdmin = !!(profile?.is_active && profile?.role === "admin");
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setChecking(false);
+      if (!data.session) window.location.href = "/";
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
+  async function loadProfileAndEmployees() {
     if (!session?.user?.id) return;
-    (async () => {
-      const { data: prof } = await supabase.from("profiles").select("role,is_active,full_name").eq("user_id", session.user.id).single();
-      setProfile((prof as any) ?? null);
 
-      const { data: emps } = await supabase
-        .from("profiles")
-        .select("user_id,full_name,is_active")
-        .eq("is_active", true)
-        .order("full_name", { ascending: true });
+    const { data: prof } = await supabase
+      .from("profiles")
+      .select("role,is_active,full_name")
+      .eq("user_id", session.user.id)
+      .single();
 
-      setEmployees(((emps ?? []) as any[]).map((e) => ({ user_id: String(e.user_id), full_name: String(e.full_name ?? "") })));
-    })();
-  }, [session?.user?.id]);
+    setProfile((prof as any) ?? null);
 
-  const isAdmin = !!(profile?.is_active && profile?.role === "admin");
+    const { data: emps, error } = await supabase
+      .from("profiles")
+      .select("user_id,full_name,is_active")
+      .eq("is_active", true)
+      .order("full_name", { ascending: true });
 
-  async function loadSummary() {
-    if (!session?.access_token) return;
-    setLoading(true);
-    setMsg("");
-    try {
-      const res = await fetch(`/api/admin/timesheets/year-summary?year=${encodeURIComponent(String(year))}`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || res.statusText);
-      }
-      const j = await res.json();
-      setSummary((j?.rows ?? []) as SummaryRow[]);
-    } catch (e: any) {
-      setMsg("Erreur résumé: " + String(e?.message ?? e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadEmployeeStatuses() {
-    if (!session?.access_token) return;
-    if (employee === "all") {
-      setStatusMap(new Map());
+    if (error) {
+      setMsg("Erreur chargement employés: " + error.message);
       return;
     }
+
+    const list = ((emps ?? []) as any[]).map((e) => ({ user_id: String(e.user_id), full_name: String(e.full_name ?? "") }));
+    setEmployees(list);
+
+    if (!employee && list.length > 0) setEmployee(list[0].user_id);
+  }
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    loadProfileAndEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  async function loadEmployeeStatuses() {
+    if (!session?.access_token || !isAdmin) return;
+    if (!employee) return;
 
     setLoading(true);
     setMsg("");
@@ -168,41 +214,47 @@ export default function AdminBordereauxPage() {
       setMsg("Erreur statut: " + (j?.error || res.statusText));
       return;
     }
-    const j = await res.json();
-    const m = new Map<string, "pending" | "approved">();
-    for (const r of (j?.rows ?? []) as any[]) m.set(String(r.month), String(r.status));
-    setStatusMap(m);
-  }
 
-  useEffect(() => {
-    if (!session?.access_token || !isAdmin) return;
-    loadSummary();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, year, isAdmin]);
+    const j = await res.json().catch(() => ({}));
+
+    // ✅ FIX TS : on force "approved" sinon "pending"
+    const obj: Record<string, Status> = {};
+    for (const r of (j?.rows ?? []) as any[]) {
+      const mk = String(r.month ?? "");
+      const stRaw = String(r.status ?? "pending");
+      const st: Status = stRaw === "approved" ? "approved" : "pending";
+      if (mk) obj[mk] = st;
+    }
+    setStatusByMonth(obj);
+  }
 
   useEffect(() => {
     if (!session?.access_token || !isAdmin) return;
     loadEmployeeStatuses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.access_token, employee, year, isAdmin]);
+  }, [session?.access_token, year, employee, isAdmin]);
 
-  useEffect(() => {
-    // ajuste le month quand on change d’année
-    if (!months.includes(month)) setMonth(months[0] ?? `${year}-01`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year]);
-
-  async function setStatus(newStatus: "approved" | "pending") {
+  async function setMonthStatus(mk: string, status: Status) {
     if (!session?.access_token) return;
-    if (employee === "all") return;
+    if (!employee) return;
+
+    const empName = employees.find((e) => e.user_id === employee)?.full_name ?? employee;
+    const ok = window.confirm(status === "approved"
+      ? `Valider ${mk} pour ${empName} ?`
+      : `Remettre en attente ${mk} pour ${empName} ?`
+    );
+    if (!ok) return;
 
     setLoading(true);
     setMsg("");
 
     const res = await fetch("/api/admin/timesheets/set-status", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: employee, month, status: newStatus }),
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: employee, month: mk, status }),
     });
 
     setLoading(false);
@@ -213,34 +265,43 @@ export default function AdminBordereauxPage() {
       return;
     }
 
-    setMsg(newStatus === "approved" ? "✅ Mois validé." : "✅ Mois remis en attente.");
-    await loadEmployeeStatuses();
-    await loadSummary();
+    setStatusByMonth((prev) => ({ ...prev, [mk]: status }));
+    setMsg(status === "approved" ? `✅ Mois validé (${mk}).` : `✅ Mois remis en attente (${mk}).`);
   }
 
-  async function exportAnnualAll() {
+  async function exportPDF(mk: string) {
     if (!session?.access_token) return;
     setLoading(true);
     setMsg("");
     try {
-      await downloadWithToken(
-        session.access_token,
-        `/api/export/yearly-xlsx?year=${encodeURIComponent(String(year))}&employee=all`,
-        `Annuel_${year}_TOUS.xlsx`
-      );
-      setMsg("✅ Export annuel téléchargé.");
+      const url = `/api/export/pdf?month=${encodeURIComponent(mk)}&employee=${encodeURIComponent(employee)}`;
+      await downloadWithToken(session.access_token, url, `Bordereau_${mk}.pdf`, true);
+      setMsg("✅ PDF ouvert (nouvel onglet).");
     } catch (e: any) {
-      setMsg("Erreur export: " + String(e?.message ?? e));
+      setMsg("Erreur export PDF: " + String(e?.message ?? e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function exportXLSX(mk: string) {
+    if (!session?.access_token) return;
+    setLoading(true);
+    setMsg("");
+    try {
+      const url = `/api/export/xlsx?month=${encodeURIComponent(mk)}&employee=${encodeURIComponent(employee)}`;
+      await downloadWithToken(session.access_token, url, `Bordereau_${mk}.xlsx`);
+      setMsg("✅ Excel téléchargé.");
+    } catch (e: any) {
+      setMsg("Erreur export Excel: " + String(e?.message ?? e));
     } finally {
       setLoading(false);
     }
   }
 
   if (checking) return <main style={S.page}>Chargement...</main>;
-  if (!session) {
-    window.location.href = "/";
-    return null;
-  }
+  if (!session) return null;
+
   if (!isAdmin) {
     return (
       <main style={S.page}>
@@ -253,115 +314,100 @@ export default function AdminBordereauxPage() {
     );
   }
 
-  const years = [];
-  for (let y = MIN_YEAR; y <= yNow; y++) years.push(y);
-
-  const selectedStatus = employee !== "all" ? (statusMap.get(month) ?? "pending") : "pending";
-
-  const totalYearAll = summary.reduce((a, r) => a + Number(r.total_hours ?? 0), 0);
+  const empName = employees.find((e) => e.user_id === employee)?.full_name ?? "";
 
   return (
     <main style={S.page}>
       <div style={S.container}>
-        <div style={S.row}>
-          <div>
-            <h1 style={S.h1}>Admin — Bordereaux</h1>
-            <p style={S.sub}>Valider les mois + Export annuel + Totaux heures année</p>
+        <div style={S.top}>
+          <div style={S.brand}>
+            <img src="/gaillard-logo.png" alt="Gaillard Jean-Paul SA" style={S.logo} />
+            <div>
+              <h1 style={S.h1}>Admin — Bordereaux (année)</h1>
+              <div style={S.sub}>Valider un mois + exporter PDF/Excel (par employé).</div>
+            </div>
           </div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/admin" style={S.link}>⬅ Admin</a>
-            <button onClick={exportAnnualAll} style={S.btnPrimary} disabled={loading}>
-              📘 Export annuel (tous)
-            </button>
-            <button onClick={() => { loadSummary(); loadEmployeeStatuses(); }} style={S.btnGhost} disabled={loading}>
-              🔄 Recharger
-            </button>
-          </div>
+
+          <a href="/admin" style={S.link}>⬅ Admin</a>
         </div>
 
-        <div style={{ ...S.card, marginTop: 14 }}>
+        <div style={S.card}>
           <div style={S.row}>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <span style={S.badge(THEME.green)}><span style={S.dot(THEME.green)} />Validé</span>
-              <span style={S.badge(THEME.amber)}><span style={S.dot(THEME.amber)} />En attente</span>
-            </div>
-            <div style={{ fontWeight: 900, color: THEME.sub }}>
-              Total heures (tous employés) {year} : <b style={{ color: THEME.text }}>{totalYearAll.toFixed(2)} h</b>
-            </div>
-          </div>
-
-          <div style={S.sep} />
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 2fr", gap: 12 }}>
             <div>
               <label style={S.label}>Année</label>
-              <select value={year} onChange={(e) => setYear(parseInt(e.target.value, 10))} style={S.input}>
-                {years.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
+              <input
+                type="number"
+                value={year}
+                min={2026}
+                max={nowYear() + 1}
+                onChange={(e) => setYear(Math.max(2026, Number(e.target.value || 2026)))}
+                style={S.input}
+              />
             </div>
 
             <div>
-              <label style={S.label}>Employé (pour valider un mois)</label>
+              <label style={S.label}>Employé</label>
               <select value={employee} onChange={(e) => setEmployee(e.target.value)} style={S.input}>
-                <option value="all">-- Choisir --</option>
-                {employees.map((e) => <option key={e.user_id} value={e.user_id}>{e.full_name}</option>)}
+                {employees.map((e) => (
+                  <option key={e.user_id} value={e.user_id}>
+                    {e.full_name}
+                  </option>
+                ))}
               </select>
-            </div>
-
-            <div>
-              <label style={S.label}>Mois</label>
-              <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.input}>
-                {months.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
+              {empName && <div style={{ marginTop: 8, color: THEME.sub, fontWeight: 900 }}>Sélection: <b style={{ color: THEME.text }}>{empName}</b></div>}
             </div>
           </div>
 
-          {employee !== "all" && (
-            <>
-              <div style={S.sep} />
-              <div style={S.row}>
-                <div>
-                  Statut actuel :{" "}
-                  {selectedStatus === "approved" ? (
-                    <span style={S.badge(THEME.green)}><span style={S.dot(THEME.green)} />Validé</span>
-                  ) : (
-                    <span style={S.badge(THEME.amber)}><span style={S.dot(THEME.amber)} />En attente</span>
-                  )}
+          <div style={{ height: 1, background: THEME.border, margin: "14px 0" }} />
+
+          <div style={S.rowBtns}>
+            <button onClick={loadEmployeeStatuses} style={S.btnGhost} disabled={loading}>
+              🔄 Recharger statuts
+            </button>
+          </div>
+
+          {msg && <div style={S.msg}>{msg}</div>}
+        </div>
+
+        <div style={S.grid}>
+          {MONTHS_FR.map((label, idx) => {
+            const m = idx + 1;
+            const mk = monthKey(year, m);
+            const st = (statusByMonth[mk] ?? "pending") as Status;
+            const color = st === "approved" ? THEME.green : THEME.amber;
+
+            return (
+              <div key={mk} style={S.monthCard}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>{label} {year}</div>
+                  <span style={S.badge(st)}>
+                    <span style={S.dot(color)} />
+                    {st === "approved" ? "Validé" : "En attente"}
+                  </span>
                 </div>
+
+                <div style={{ height: 1, background: THEME.border, margin: "10px 0" }} />
+
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button onClick={() => setStatus("approved")} style={S.btnOk} disabled={loading}>
-                    ✅ Valider le mois
+                  <button onClick={() => exportXLSX(mk)} style={S.btnPrimary} disabled={loading}>
+                    📗 Excel
                   </button>
-                  <button onClick={() => setStatus("pending")} style={S.btnWarn} disabled={loading}>
-                    ↩ Remettre en attente
+                  <button onClick={() => exportPDF(mk)} style={S.btnGhost} disabled={loading}>
+                    📄 PDF
+                  </button>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+                  <button onClick={() => setMonthStatus(mk, "approved")} style={S.btnOk} disabled={loading}>
+                    ✅ Valider
+                  </button>
+                  <button onClick={() => setMonthStatus(mk, "pending")} style={S.btnWarn} disabled={loading}>
+                    ↩ En attente
                   </button>
                 </div>
               </div>
-            </>
-          )}
-        </div>
-
-        <div style={{ ...S.card, marginTop: 14 }}>
-          <h3 style={{ marginTop: 0 }}>Résumé annuel (heures)</h3>
-
-          {summary.length === 0 ? (
-            <p style={{ color: THEME.sub, margin: 0 }}>Aucune donnée.</p>
-          ) : (
-            <div style={{ display: "grid", gap: 10 }}>
-              {summary.map((r) => (
-                <div key={r.user_id} style={{ background: THEME.card2, border: `1px solid ${THEME.border}`, borderRadius: 14, padding: 12 }}>
-                  <div style={S.row}>
-                    <div style={{ fontWeight: 900 }}>{r.full_name}</div>
-                    <div style={{ color: THEME.sub, fontWeight: 900 }}>
-                      Total {Number(r.total_hours).toFixed(2)}h — Validé {Number(r.approved_hours).toFixed(2)}h — En attente {Number(r.pending_hours).toFixed(2)}h — Mois validés {r.approved_months} — Mois en attente {r.pending_months}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {msg && <div style={S.msg}>{msg}</div>}
+            );
+          })}
         </div>
       </div>
     </main>
