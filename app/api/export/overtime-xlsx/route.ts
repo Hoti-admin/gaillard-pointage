@@ -17,6 +17,8 @@ type Entry = {
   approved_at: string | null;
 };
 
+type OvertimeRequest = { hours: number; note: string | null };
+
 async function requireAdmin(accessToken: string) {
   const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(accessToken);
   if (userErr || !userData.user) return { ok: false as const, reason: "UNAUTHORIZED" };
@@ -156,9 +158,9 @@ export async function GET(req: Request) {
     const { data: reqs, error: reqErr } = await rq;
     if (reqErr) return NextResponse.json({ error: reqErr.message }, { status: 500 });
 
-    const reqByUser = new Map<string, { hours: number; note: string | null }>();
+    const reqByUser = new Map<string, OvertimeRequest>();
     for (const r of (reqs ?? []) as any[]) {
-      reqByUser.set(String(r.user_id), { hours: Number(r.requested_hours ?? 0), note: r.note ?? null });
+      reqByUser.set(String(r.user_id), { hours: Number(r.requested_hours ?? 0), note: (r.note ?? null) as any });
     }
 
     // totals by employee
@@ -260,15 +262,17 @@ export async function GET(req: Request) {
       const pending = Number((pendingByUser.get(uid) ?? 0).toFixed(2));
       const paidH = Number((paidByUser.get(uid) ?? 0).toFixed(2));
 
-      const reqRow = reqByUser.get(uid);
+      const reqRow: OvertimeRequest | undefined = reqByUser.get(uid);
       const requestedRaw = reqRow ? Number(reqRow.hours ?? 0) : total; // défaut = payer tout
       const requested = Number(clamp(requestedRaw, 0, total).toFixed(2));
 
       const balance = Number((approved - paidH).toFixed(2));
-      const remark =
-        (reqRow?.note ? `Demande: ${reqRow.note}` : "") +
-        (balance < 0 ? (reqRow?.note ? " | " : "") + "Crédit (trop payé)" : "") +
-        (!reqRow ? ((reqRow?.note || balance < 0) ? " | " : "") + "Auto (pas de demande)" : "");
+
+      // ✅ FIX TS + logique plus claire
+      const reqNote = reqRow?.note ? `Demande: ${reqRow.note}` : "";
+      const creditNote = balance < 0 ? (reqNote ? " | " : "") + "Crédit (trop payé)" : "";
+      const autoNote = !reqRow ? ((reqNote || balance < 0) ? " | " : "") + "Auto (pas de demande)" : "";
+      const remark = reqNote + creditNote + autoNote;
 
       gTot += total; gApp += approved; gPend += pending; gReq += requested; gPaid += paidH; gBal += balance;
 
