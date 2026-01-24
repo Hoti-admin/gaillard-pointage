@@ -15,6 +15,7 @@ type LogRow = {
   ended_at: string | null;
 };
 
+type EmployeePack = { user_id: string; full_name: string };
 type LogoInfo = { bytes: Uint8Array | null; type: "png" | "jpg" | null };
 
 function safeText(s: string) {
@@ -32,6 +33,7 @@ function safeText(s: string) {
   }
   return out;
 }
+
 function clip(t: string, n: number) {
   const s = safeText(t);
   if (!s) return "";
@@ -144,23 +146,20 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
   }
 }
 
-// ✅ Logo: PNG ou JPG
+// ✅ JPG priorité (pour les bordereaux)
 async function readLogoAny(): Promise<LogoInfo> {
-  const png = await tryRead("public/gaillard-logo.png");
-  if (png) return { bytes: png, type: "png" };
-
   const jpg = await tryRead("public/gaillard-logo.jpg");
   if (jpg) return { bytes: jpg, type: "jpg" };
 
   const jpeg = await tryRead("public/gaillard-logo.jpeg");
   if (jpeg) return { bytes: jpeg, type: "jpg" };
 
+  const png = await tryRead("public/gaillard-logo.png");
+  if (png) return { bytes: png, type: "png" };
+
   return { bytes: null, type: null };
 }
 
-type EmployeePack = { user_id: string; full_name: string };
-
-// "Chantiers: A 2.50h / B 3.00h (+1)"
 function compactChantiers(entries: Array<{ name: string; hours: number }>, maxShow = 2) {
   if (!entries.length) return "Chantiers: -";
   const sorted = [...entries].sort((a, b) => b.hours - a.hours);
@@ -191,7 +190,7 @@ export async function GET(req: Request) {
 
     const logoInfo = await readLogoAny();
 
-    // sites
+    // sites map
     const { data: sites, error: sitesErr } = await supabaseAdmin.from("sites").select("id,name");
     if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
     const siteName = new Map((sites ?? []).map((s: any) => [String(s.id), safeText(String(s.name ?? ""))]));
@@ -228,7 +227,6 @@ export async function GET(req: Request) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // embed logo
     let logoImg: any = null;
     if (logoInfo.bytes && logoInfo.type === "png") logoImg = await pdfDoc.embedPng(logoInfo.bytes);
     if (logoInfo.bytes && logoInfo.type === "jpg") logoImg = await pdfDoc.embedJpg(logoInfo.bytes);
@@ -244,17 +242,18 @@ export async function GET(req: Request) {
       // daily_status
       const { data: stRows, error: stErr } = await supabaseAdmin
         .from("daily_status")
-        .select("work_date,day_type,note,site_id,start_time,break_start,break_end,end_time")
+        .select("work_date,day_type,note,site_id")
         .eq("user_id", emp.user_id)
         .gte("work_date", firstDate)
         .lte("work_date", lastDate)
         .order("work_date", { ascending: true });
 
       if (stErr) return NextResponse.json({ error: stErr.message }, { status: 500 });
+
       const statusMap = new Map<string, any>();
       for (const r of (stRows ?? []) as any[]) statusMap.set(String(r.work_date), r);
 
-      // logs
+      // logs multi-chantiers
       const { data: logs, error: logErr } = await supabaseAdmin
         .from("daily_site_logs")
         .select("work_date,site_id,segment_type,started_at,ended_at")
@@ -271,6 +270,7 @@ export async function GET(req: Request) {
       for (const l of (logs ?? []) as LogRow[]) {
         if (l.segment_type !== "work") continue;
         if (!l.site_id) continue;
+
         const end = l.ended_at ?? nowIso;
         const mins = minutesBetween(l.started_at, end);
         if (mins <= 0) continue;
@@ -298,6 +298,7 @@ export async function GET(req: Request) {
         misc += Number(r.misc_chf ?? 0);
       }
 
+      // page
       const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
       // header
@@ -313,6 +314,7 @@ export async function GET(req: Request) {
         size: 12,
         font: fontBold,
       });
+
       page.drawText(safeText(`Mois de : ${monthLabel}`), {
         x: PAGE_W - MARGIN - 320,
         y: headerTop - 58,
@@ -320,6 +322,7 @@ export async function GET(req: Request) {
         font: fontBold,
       });
 
+      // grid
       const gridTop = PAGE_H - 150;
       const gridLeft = MARGIN;
       const gridW = PAGE_W - 2 * MARGIN;
@@ -391,6 +394,7 @@ export async function GET(req: Request) {
               font: line2.startsWith("Chantiers") ? font : fontBold,
             });
           }
+
           if (line3) {
             page.drawText(line3, { x: x0 + 6, y: y0 - 48, size: smallFont, font: fontBold });
           }
@@ -414,6 +418,7 @@ export async function GET(req: Request) {
         });
       }
 
+      // bottom
       const bottomY = 45;
 
       page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), {
