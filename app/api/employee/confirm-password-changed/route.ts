@@ -10,21 +10,28 @@ export async function POST(req: Request) {
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
     const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
-    if (userErr || !userData.user) {
-      return NextResponse.json({ error: "UNAUTHORIZED", detail: userErr?.message ?? "" }, { status: 401 });
-    }
+    if (userErr || !userData.user) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-    const userId = userData.user.id;
+    const user_id = userData.user.id;
 
+    // ✅ on enlève l'obligation de changer le mot de passe
     const { error: pErr } = await supabaseAdmin
       .from("profiles")
-      .update({ must_change_password: false })
-      .eq("user_id", userId);
+      .update({
+        must_change_password: false,
+        password_changed_at: new Date().toISOString(),
+      })
+      .eq("user_id", user_id);
 
-    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
+    if (pErr) {
+      return NextResponse.json({ error: pErr.message }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ error: String(err?.message ?? err), stack: err?.stack ?? null }, { status: 500 });
+    return NextResponse.json(
+      { error: String(err?.message ?? err), stack: err?.stack ?? null },
+      { status: 500 }
+    );
   }
 }
