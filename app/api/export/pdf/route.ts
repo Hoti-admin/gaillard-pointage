@@ -143,7 +143,9 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
 }
 
 // ✅ NOUVEAU : lire logo en PNG ou JPG
-async function readLogoAny() {
+async function readLogoAny(): Promise<LogoInfo> {
+  type LogoInfo = { bytes: Uint8Array | null; type: "png" | "jpg" | null };
+
   const png = await tryRead("public/gaillard-logo.png");
   if (png) return { bytes: png, type: "png" as const };
 
@@ -153,7 +155,7 @@ async function readLogoAny() {
   const jpeg = await tryRead("public/gaillard-logo.jpeg");
   if (jpeg) return { bytes: jpeg, type: "jpg" as const };
 
-  return { bytes: null, type: null as const };
+    return { bytes: null, type: null };
 }
 
 type EmployeePack = { user_id: string; full_name: string };
