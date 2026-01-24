@@ -15,6 +15,8 @@ type LogRow = {
   ended_at: string | null;
 };
 
+type LogoInfo = { bytes: Uint8Array | null; type: "png" | "jpg" | null };
+
 function safeText(s: string) {
   if (!s) return "";
   let t = s
@@ -142,25 +144,23 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
   }
 }
 
-// ✅ NOUVEAU : lire logo en PNG ou JPG
+// ✅ Logo: PNG ou JPG
 async function readLogoAny(): Promise<LogoInfo> {
-  type LogoInfo = { bytes: Uint8Array | null; type: "png" | "jpg" | null };
-
   const png = await tryRead("public/gaillard-logo.png");
-  if (png) return { bytes: png, type: "png" as const };
+  if (png) return { bytes: png, type: "png" };
 
   const jpg = await tryRead("public/gaillard-logo.jpg");
-  if (jpg) return { bytes: jpg, type: "jpg" as const };
+  if (jpg) return { bytes: jpg, type: "jpg" };
 
   const jpeg = await tryRead("public/gaillard-logo.jpeg");
-  if (jpeg) return { bytes: jpeg, type: "jpg" as const };
+  if (jpeg) return { bytes: jpeg, type: "jpg" };
 
-    return { bytes: null, type: null };
+  return { bytes: null, type: null };
 }
 
 type EmployeePack = { user_id: string; full_name: string };
 
-// Construit le texte compact: "Chantiers: A 2.50h / B 3.00h (+1)"
+// "Chantiers: A 2.50h / B 3.00h (+1)"
 function compactChantiers(entries: Array<{ name: string; hours: number }>, maxShow = 2) {
   if (!entries.length) return "Chantiers: -";
   const sorted = [...entries].sort((a, b) => b.hours - a.hours);
@@ -191,7 +191,7 @@ export async function GET(req: Request) {
 
     const logoInfo = await readLogoAny();
 
-    // sites map
+    // sites
     const { data: sites, error: sitesErr } = await supabaseAdmin.from("sites").select("id,name");
     if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
     const siteName = new Map((sites ?? []).map((s: any) => [String(s.id), safeText(String(s.name ?? ""))]));
@@ -206,7 +206,10 @@ export async function GET(req: Request) {
         .order("full_name", { ascending: true });
 
       if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-      employees = (profs ?? []).map((p: any) => ({ user_id: String(p.user_id), full_name: safeText(String(p.full_name ?? "")) }));
+      employees = (profs ?? []).map((p: any) => ({
+        user_id: String(p.user_id),
+        full_name: safeText(String(p.full_name ?? "")),
+      }));
     } else {
       const { data: prof, error: pErr } = await supabaseAdmin
         .from("profiles")
@@ -225,7 +228,7 @@ export async function GET(req: Request) {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // ✅ NOUVEAU : embed selon type
+    // embed logo
     let logoImg: any = null;
     if (logoInfo.bytes && logoInfo.type === "png") logoImg = await pdfDoc.embedPng(logoInfo.bytes);
     if (logoInfo.bytes && logoInfo.type === "jpg") logoImg = await pdfDoc.embedJpg(logoInfo.bytes);
@@ -238,7 +241,7 @@ export async function GET(req: Request) {
     const smallFont = colCount >= 6 ? 8 : 9;
 
     for (const emp of employees) {
-      // daily_status (type journée + fallback)
+      // daily_status
       const { data: stRows, error: stErr } = await supabaseAdmin
         .from("daily_status")
         .select("work_date,day_type,note,site_id,start_time,break_start,break_end,end_time")
@@ -251,7 +254,7 @@ export async function GET(req: Request) {
       const statusMap = new Map<string, any>();
       for (const r of (stRows ?? []) as any[]) statusMap.set(String(r.work_date), r);
 
-      // logs multi-chantiers
+      // logs
       const { data: logs, error: logErr } = await supabaseAdmin
         .from("daily_site_logs")
         .select("work_date,site_id,segment_type,started_at,ended_at")
@@ -262,9 +265,9 @@ export async function GET(req: Request) {
 
       if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
 
-      // map date -> site -> minutes (work)
       const workByDaySite = new Map<string, Map<string, number>>();
       const nowIso = new Date().toISOString();
+
       for (const l of (logs ?? []) as LogRow[]) {
         if (l.segment_type !== "work") continue;
         if (!l.site_id) continue;
@@ -274,10 +277,11 @@ export async function GET(req: Request) {
 
         if (!workByDaySite.has(l.work_date)) workByDaySite.set(l.work_date, new Map());
         const m = workByDaySite.get(l.work_date)!;
-        m.set(String(l.site_id), (m.get(String(l.site_id)) ?? 0) + mins);
+        const sid = String(l.site_id);
+        m.set(sid, (m.get(sid) ?? 0) + mins);
       }
 
-      // expenses totals (mois)
+      // expenses totals
       const { data: expRows, error: expErr } = await supabaseAdmin
         .from("daily_expenses")
         .select("travel_chf,meals_qty,misc_chf")
@@ -294,13 +298,10 @@ export async function GET(req: Request) {
         misc += Number(r.misc_chf ?? 0);
       }
 
-      // 1 page / employé
       const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
       // header
       const headerTop = PAGE_H - MARGIN;
-
-      // ✅ NOUVEAU : scaleToFit pour PNG/JPG
       if (logoImg) {
         const scaled = logoImg.scaleToFit(240, 70);
         page.drawImage(logoImg, { x: MARGIN, y: headerTop - 72, width: scaled.width, height: scaled.height });
@@ -312,7 +313,6 @@ export async function GET(req: Request) {
         size: 12,
         font: fontBold,
       });
-
       page.drawText(safeText(`Mois de : ${monthLabel}`), {
         x: PAGE_W - MARGIN - 320,
         y: headerTop - 58,
@@ -320,7 +320,6 @@ export async function GET(req: Request) {
         font: fontBold,
       });
 
-      // grid
       const gridTop = PAGE_H - 150;
       const gridLeft = MARGIN;
       const gridW = PAGE_W - 2 * MARGIN;
@@ -372,12 +371,6 @@ export async function GET(req: Request) {
                   total += h;
                   entries.push({ name: siteName.get(sid) ?? "-", hours: h });
                 }
-              } else if (st) {
-                const chantier = st.site_id ? (siteName.get(String(st.site_id)) ?? "-") : "-";
-                // fallback -> on ne calcule pas ici, juste affichage compact si besoin
-                // si tu veux, on peut remettre le calcHoursFromStatus, mais ton export logs suffit.
-                // (on laisse total = 0 si aucun log)
-                if (chantier !== "-" ) entries.push({ name: chantier, hours: 0 });
               }
 
               line2 = safeText(compactChantiers(entries, 2));
@@ -421,7 +414,6 @@ export async function GET(req: Request) {
         });
       }
 
-      // bas de page
       const bottomY = 45;
 
       page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), {
