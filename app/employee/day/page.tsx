@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type DayType = "work" | "holiday" | "sick" | "leave" | "accident" | "vacation" | "other";
-type Site = { id: string; name: string; is_active: boolean };
+type Site = { id: string; name: string | null; is_active: boolean | null };
 
 const THEME = {
   bg: "#0b1220",
@@ -23,7 +23,7 @@ const S: any = {
   container: { maxWidth: 820, margin: "18px auto", background: THEME.surface, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 18, boxShadow: "0 10px 30px rgba(0,0,0,0.25)" },
   top: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" },
   brand: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
-  logo: { width: 220, height: "auto", display: "block", filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))" },
+  logo: { width: 220, height: "auto", display: "block", filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))", borderRadius: 14, border: `1px solid ${THEME.border}` },
   h1: { margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: -0.3 },
   sub: { marginTop: 6, color: THEME.sub, fontWeight: 800 },
 
@@ -73,8 +73,6 @@ export default function EmployeeDayPage() {
   const [sites, setSites] = useState<Site[]>([]);
 
   const [dayType, setDayType] = useState<DayType>("work");
-  const [note, setNote] = useState("");
-
   const [siteId, setSiteId] = useState<string>("");
 
   const [startTime, setStartTime] = useState("07:00");
@@ -82,13 +80,20 @@ export default function EmployeeDayPage() {
   const [breakEnd, setBreakEnd] = useState("13:00");
   const [endTime, setEndTime] = useState("17:00");
 
-  // ✅ frais simples
   const [travelCHF, setTravelCHF] = useState(0);
-  const [mealsYes, setMealsYes] = useState(false); // OUI/NON
+  const [mealsYes, setMealsYes] = useState(false);
   const [miscCHF, setMiscCHF] = useState(0);
 
   const isWork = dayType === "work";
-  const siteOptions = useMemo(() => sites.slice().sort((a, b) => a.name.localeCompare(b.name)), [sites]);
+
+  const siteOptions = useMemo(() => {
+    return (sites ?? [])
+      .map((s) => ({
+        ...s,
+        name: (s.name ?? "").trim(),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [sites]);
 
   async function loadDay() {
     setMsg("");
@@ -104,18 +109,22 @@ export default function EmployeeDayPage() {
 
     const res = await fetch(`/api/employee/day-data?date=${encodeURIComponent(date)}`, {
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
     });
 
-    setLoading(false);
-
     if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setMsg("Erreur chargement: " + (j?.error || res.statusText));
+      let detail = "";
+      try {
+        const j = await res.json();
+        detail = j?.error ? String(j.error) : "";
+      } catch {}
+      const extra = detail || res.statusText || "Erreur serveur";
+      setMsg(`⚠️ Erreur chargement (${res.status}) : ${extra}`);
+      setLoading(false);
       return;
     }
 
     const j = await res.json();
-
     setSites((j?.sites ?? []) as Site[]);
 
     const st = j?.status;
@@ -123,7 +132,6 @@ export default function EmployeeDayPage() {
 
     const dt: DayType = (st?.day_type ?? "work") as DayType;
     setDayType(dt);
-    setNote(st?.note ?? "");
 
     setSiteId(st?.site_id ? String(st.site_id) : "");
     setStartTime(st?.start_time ?? "07:00");
@@ -134,6 +142,8 @@ export default function EmployeeDayPage() {
     setTravelCHF(Number(ex?.travel_chf ?? 0));
     setMealsYes(Number(ex?.meals_qty ?? 0) > 0);
     setMiscCHF(Number(ex?.misc_chf ?? 0));
+
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -160,16 +170,14 @@ export default function EmployeeDayPage() {
     const token = data.session?.access_token;
     if (!token) {
       setLoading(false);
-      setMsg("Missing token");
+      setMsg("⚠️ Missing token");
       return;
     }
 
     const payload: any = {
       work_date: date,
       day_type: dayType,
-      note: note || null,
-
-      // frais
+      note: null,
       travel_chf: clampNum(travelCHF),
       meals_qty: mealsYes ? 1 : 0,
       misc_chf: clampNum(miscCHF),
@@ -187,7 +195,6 @@ export default function EmployeeDayPage() {
       payload.break_start = null;
       payload.break_end = null;
       payload.end_time = null;
-
       payload.travel_chf = 0;
       payload.meals_qty = 0;
       payload.misc_chf = 0;
@@ -205,8 +212,13 @@ export default function EmployeeDayPage() {
     setLoading(false);
 
     if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setMsg("Erreur sauvegarde: " + (j?.error || res.statusText));
+      let detail = "";
+      try {
+        const j = await res.json();
+        detail = j?.error ? String(j.error) : "";
+      } catch {}
+      const extra = detail || res.statusText || "Erreur serveur";
+      setMsg(`⚠️ Erreur sauvegarde (${res.status}) : ${extra}`);
       return;
     }
 
@@ -256,11 +268,6 @@ export default function EmployeeDayPage() {
               </select>
             </div>
           </div>
-
-          <div style={{ marginTop: 12 }}>
-            <label style={S.label}>Note (optionnel)</label>
-            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex: info…" style={S.input} />
-          </div>
         </div>
 
         <div style={S.card}>
@@ -269,29 +276,19 @@ export default function EmployeeDayPage() {
               <label style={S.label}>Chantier</label>
               <select value={siteId} onChange={(e) => setSiteId(e.target.value)} style={S.select} disabled={!isWork}>
                 <option value="">— Choisir —</option>
+
+                {/* ✅ si aucun chantier */}
+                {siteOptions.length === 0 && <option value="">(Aucun chantier actif)</option>}
+
                 {siteOptions.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name}
+                    {s.name || `Chantier (${String(s.id).slice(0, 6)})`}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div>
-              <label style={S.label}>Horaires (par défaut)</label>
-              <button
-                onClick={() => {
-                  setStartTime("07:00");
-                  setBreakStart("12:00");
-                  setBreakEnd("13:00");
-                  setEndTime("17:00");
-                }}
-                style={S.btnGhost}
-                disabled={loading || !isWork}
-              >
-                ↩ Mettre 07:00 / 12:00-13:00 / 17:00
-              </button>
-            </div>
+            <div />
           </div>
 
           <div style={{ height: 1, background: THEME.border, margin: "14px 0" }} />
@@ -317,45 +314,25 @@ export default function EmployeeDayPage() {
           </div>
         </div>
 
-        {/* ✅ Frais simples */}
         <div style={S.card}>
           <h3 style={{ marginTop: 0 }}>Frais du jour</h3>
 
           <div style={S.row3}>
             <div>
               <label style={S.label}>Déplacement (CHF)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={travelCHF}
-                onChange={(e) => setTravelCHF(clampNum(e.target.value))}
-                style={S.input}
-                disabled={!isWork}
-              />
+              <input type="number" step="0.01" value={travelCHF} onChange={(e) => setTravelCHF(clampNum(e.target.value))} style={S.input} disabled={!isWork} />
             </div>
 
             <div>
               <label style={S.label}>Repas extérieurs midi</label>
-              <button
-                type="button"
-                style={S.pill(mealsYes)}
-                disabled={!isWork}
-                onClick={() => setMealsYes((v) => !v)}
-              >
+              <button type="button" style={S.pill(mealsYes)} disabled={!isWork} onClick={() => setMealsYes((v) => !v)}>
                 🍽 {mealsYes ? "OUI" : "NON"}
               </button>
             </div>
 
             <div>
               <label style={S.label}>Divers (CHF)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={miscCHF}
-                onChange={(e) => setMiscCHF(clampNum(e.target.value))}
-                style={S.input}
-                disabled={!isWork}
-              />
+              <input type="number" step="0.01" value={miscCHF} onChange={(e) => setMiscCHF(clampNum(e.target.value))} style={S.input} disabled={!isWork} />
             </div>
           </div>
 
@@ -365,7 +342,7 @@ export default function EmployeeDayPage() {
             </button>
           </div>
 
-          {msg && <div style={S.msg}>{msg}</div>}
+          {msg.trim() && <div style={S.msg}>{msg}</div>}
         </div>
 
         <div style={{ marginTop: 12 }}>
