@@ -51,10 +51,12 @@ const S: any = {
   label: { display: "block", fontWeight: 900, marginBottom: 6, color: THEME.sub },
   input: { width: "100%", padding: 10, borderRadius: 12, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" },
   select: { width: "100%", padding: 10, borderRadius: 12, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" },
+
   btnPrimary: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.red}`, background: THEME.red, color: "#fff", cursor: "pointer" },
   btnGhost: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, cursor: "pointer" },
   btnOk: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.green}`, background: "transparent", color: THEME.text, cursor: "pointer" },
   btnWarn: { padding: "12px 14px", fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.amber}`, background: "transparent", color: THEME.text, cursor: "pointer" },
+
   msg: { marginTop: 12, padding: "10px 12px", borderRadius: 12, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800 },
 
   table: { width: "100%", borderCollapse: "separate", borderSpacing: 0, overflow: "hidden" },
@@ -266,7 +268,7 @@ export default function AdminReviewPage() {
         travel_chf: r.travel_chf,
         meals_qty: r.meals_qty,
         misc_chf: r.misc_chf,
-        replace_logs: replaceLogs, // ✅ important pour que l’export reflète la correction
+        replace_logs: replaceLogs,
       }),
     });
 
@@ -279,37 +281,6 @@ export default function AdminReviewPage() {
     }
 
     setMsg(`✅ Sauvegardé: ${date}`);
-    // reload just to refresh has_logs etc.
-    loadMonthData();
-  }
-
-  async function validateMonth() {
-    if (!session?.access_token) return;
-
-    const ok = window.confirm(`Valider le mois ${month} ?`);
-    if (!ok) return;
-
-    setLoading(true);
-    setMsg("");
-
-    const res = await fetch("/api/admin/timesheets/set-status", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: employee, month, status: "approved" }),
-    });
-
-    setLoading(false);
-
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      setMsg("Erreur validation: " + (j?.error || res.statusText));
-      return;
-    }
-
-    setMsg("✅ Mois validé.");
     loadMonthData();
   }
 
@@ -361,6 +332,92 @@ export default function AdminReviewPage() {
       setMsg("Erreur export Excel: " + String(e?.message ?? e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function validateMonthOnly() {
+    if (!session?.access_token) return;
+
+    const ok = window.confirm(`Valider le mois ${month} ?`);
+    if (!ok) return;
+
+    setLoading(true);
+    setMsg("");
+
+    const res = await fetch("/api/admin/timesheets/set-status", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: employee, month, status: "approved" }),
+    });
+
+    setLoading(false);
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setMsg("Erreur validation: " + (j?.error || res.statusText));
+      return;
+    }
+
+    setMsg("✅ Mois validé.");
+    loadMonthData();
+  }
+
+  // ✅ NOUVEAU : Valider + générer PDF
+  async function validateAndPdf() {
+    if (!session?.access_token) return;
+
+    // si déjà validé → juste PDF
+    if (monthStatus === "approved") {
+      await exportPDF();
+      return;
+    }
+
+    const ok = window.confirm(`Valider le mois ${month} et générer le PDF ?`);
+    if (!ok) return;
+
+    setLoading(true);
+    setMsg("");
+
+    // 1) valider
+    const res = await fetch("/api/admin/timesheets/set-status", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: employee, month, status: "approved" }),
+    });
+
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setLoading(false);
+      setMsg("Erreur validation: " + (j?.error || res.statusText));
+      return;
+    }
+
+    // 2) ouvrir PDF
+    try {
+      const url = `/api/export/pdf?month=${encodeURIComponent(month)}&employee=${encodeURIComponent(employee)}`;
+      const pdfRes = await fetch(url, { headers: { Authorization: `Bearer ${session.access_token}` } });
+      if (!pdfRes.ok) {
+        const j = await pdfRes.json().catch(() => ({}));
+        throw new Error(j?.error || pdfRes.statusText);
+      }
+      const blob = await pdfRes.blob();
+      const u = URL.createObjectURL(blob);
+      window.open(u, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(u), 30000);
+
+      setMsg("✅ Mois validé + PDF généré.");
+      setMonthStatus("approved");
+    } catch (e: any) {
+      setMsg("✅ Mois validé, mais erreur PDF: " + String(e?.message ?? e));
+    } finally {
+      setLoading(false);
+      loadMonthData();
     }
   }
 
@@ -428,10 +485,21 @@ export default function AdminReviewPage() {
 
           <div style={S.rowBtns}>
             <button onClick={loadMonthData} style={S.btnGhost} disabled={loading}>🔄 Recharger</button>
+
             <button onClick={exportXLSX} style={S.btnPrimary} disabled={loading}>📗 Export Excel</button>
             <button onClick={exportPDF} style={S.btnGhost} disabled={loading}>📄 Export PDF</button>
+
+            {/* ✅ NOUVEAU BOUTON 1-CLIC */}
+            <button onClick={validateAndPdf} style={S.btnOk} disabled={loading}>
+              ✅ Valider + générer PDF
+            </button>
+
             <div style={{ flex: 1 }} />
-            <button onClick={validateMonth} style={S.btnOk} disabled={loading || monthStatus === "approved"}>✅ Valider le mois</button>
+
+            <button onClick={validateMonthOnly} style={S.btnOk} disabled={loading || monthStatus === "approved"}>
+              ✅ Valider le mois
+            </button>
+
             <button
               onClick={async () => {
                 const ok = window.confirm(`Remettre ${month} en attente ?`);
@@ -448,6 +516,7 @@ export default function AdminReviewPage() {
                   setMsg("Erreur: " + (j?.error || res.statusText));
                 } else {
                   setMsg("✅ Mois remis en attente.");
+                  setMonthStatus("pending");
                   loadMonthData();
                 }
               }}
