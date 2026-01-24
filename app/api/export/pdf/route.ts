@@ -42,11 +42,13 @@ function monthToRange(month: string) {
   const [yStr, mStr] = month.split("-");
   const y = parseInt(yStr, 10);
   const m0 = parseInt(mStr, 10) - 1;
+
   const lastDay = new Date(y, m0 + 1, 0).getDate();
   const firstDate = `${y}-${String(m0 + 1).padStart(2, "0")}-01`;
   const lastDate = `${y}-${String(m0 + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   return { y, m0, firstDate, lastDate };
 }
+
 function monthLabelFR(month: string) {
   const [y, mo] = month.split("-");
   const d = new Date(parseInt(y, 10), parseInt(mo, 10) - 1, 1);
@@ -78,9 +80,8 @@ function getWeeksForMonth(y: number, m0: number) {
     weeks.push(new Date(cur));
     cur = addDays(cur, 7);
   }
-  return weeks;
+  return weeks; // 4..6
 }
-
 function frDayName(i: number) {
   return safeText(["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"][i] ?? "");
 }
@@ -94,65 +95,41 @@ function fmtFRDate(d: Date) {
 function dayTypeLabel(t: DayType, note?: string | null) {
   const n = safeText(note ?? "");
   switch (t) {
-    case "holiday": return "FERIE";
-    case "sick": return "MALADIE";
-    case "leave": return "CONGE";
-    case "accident": return "ACCIDENT";
-    case "vacation": return "VACANCES";
-    case "other": return n.trim() ? `AUTRE: ${n.trim()}` : "AUTRE";
-    default: return "";
+    case "holiday":
+      return "FERIE";
+    case "sick":
+      return "MALADIE";
+    case "leave":
+      return "CONGE";
+    case "accident":
+      return "ACCIDENT";
+    case "vacation":
+      return "VACANCES";
+    case "other":
+      return n.trim() ? `AUTRE: ${n.trim()}` : "AUTRE";
+    default:
+      return "";
   }
 }
 
-function toMinutes(hhmm: string | null | undefined) {
-  if (!hhmm) return null;
-  const v = String(hhmm).slice(0, 5);
-  const [h, m] = v.split(":").map((x) => parseInt(x, 10));
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
-}
-function calcHoursFromStatus(r: any) {
-  const st = toMinutes(r.start_time);
-  const bs = toMinutes(r.break_start);
-  const be = toMinutes(r.break_end);
-  const et = toMinutes(r.end_time);
-  if (st == null || et == null) return 0;
-  const total = Math.max(0, et - st);
-  const pause = bs != null && be != null ? Math.max(0, be - bs) : 0;
-  return Math.max(0, total - pause) / 60;
-}
 function minutesBetween(aIso: string, bIso: string) {
   const a = new Date(aIso).getTime();
   const b = new Date(bIso).getTime();
   return Math.max(0, Math.round((b - a) / 60000));
 }
 
-function compactChantiers(entries: Array<{ name: string; hours: number }>, maxShow = 2) {
-  if (!entries.length) return "Chantiers: -";
-  const sorted = [...entries].sort((a, b) => b.hours - a.hours);
-  const shown = sorted.slice(0, maxShow);
-  const more = sorted.length - shown.length;
-
-  const parts = shown.map((e) => `${clip(e.name, 18)} ${e.hours.toFixed(2)}h`);
-  let s = `Chantiers: ${parts.join(" / ")}`;
-  if (more > 0) s += ` (+${more})`;
-  return s;
-}
-
-async function requireUser(accessToken: string) {
+async function requireAdmin(accessToken: string) {
   const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(accessToken);
-  if (userErr || !userData.user) return { ok: false as const, status: 401, reason: "UNAUTHORIZED" };
+  if (userErr || !userData.user) return { ok: false as const, reason: "UNAUTHORIZED" };
 
-  const { data: prof, error: pErr } = await supabaseAdmin
+  const { data: prof } = await supabaseAdmin
     .from("profiles")
     .select("role,is_active")
     .eq("user_id", userData.user.id)
     .single();
 
-  if (pErr || !prof?.is_active) return { ok: false as const, status: 403, reason: "FORBIDDEN" };
-
-  const role = String(prof.role || "employee");
-  return { ok: true as const, role, userId: userData.user.id };
+  if (!prof?.is_active || prof.role !== "admin") return { ok: false as const, reason: "FORBIDDEN" };
+  return { ok: true as const };
 }
 
 async function tryRead(relPath: string): Promise<Uint8Array | null> {
@@ -165,7 +142,34 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
   }
 }
 
+// ✅ NOUVEAU : lire logo en PNG ou JPG
+async function readLogoAny() {
+  const png = await tryRead("public/gaillard-logo.png");
+  if (png) return { bytes: png, type: "png" as const };
+
+  const jpg = await tryRead("public/gaillard-logo.jpg");
+  if (jpg) return { bytes: jpg, type: "jpg" as const };
+
+  const jpeg = await tryRead("public/gaillard-logo.jpeg");
+  if (jpeg) return { bytes: jpeg, type: "jpg" as const };
+
+  return { bytes: null, type: null as const };
+}
+
 type EmployeePack = { user_id: string; full_name: string };
+
+// Construit le texte compact: "Chantiers: A 2.50h / B 3.00h (+1)"
+function compactChantiers(entries: Array<{ name: string; hours: number }>, maxShow = 2) {
+  if (!entries.length) return "Chantiers: -";
+  const sorted = [...entries].sort((a, b) => b.hours - a.hours);
+  const shown = sorted.slice(0, maxShow);
+  const more = sorted.length - shown.length;
+
+  const parts = shown.map((e) => `${clip(e.name, 18)} ${e.hours.toFixed(2)}h`);
+  let s = `Chantiers: ${parts.join(" / ")}`;
+  if (more > 0) s += ` (+${more})`;
+  return s;
+}
 
 export async function GET(req: Request) {
   try {
@@ -173,40 +177,19 @@ export async function GET(req: Request) {
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
-    const au = await requireUser(token);
-    if (!au.ok) return NextResponse.json({ error: au.reason }, { status: au.status });
-
-    const isAdmin = au.role === "admin";
+    const admin = await requireAdmin(token);
+    if (!admin.ok) return NextResponse.json({ error: admin.reason }, { status: 403 });
 
     const { searchParams } = new URL(req.url);
     const month = searchParams.get("month") || new Date().toISOString().slice(0, 7);
-
-    let employee = searchParams.get("employee") || "all";
-
-    // ✅ employé: seulement lui-même
-    if (!isAdmin) employee = au.userId;
-    else if (employee === "self") employee = au.userId;
-
-    // ✅ BLOQUER SI PAS VALIDÉ (côté employé)
-    if (!isAdmin) {
-      const { data: st, error: stErr } = await supabaseAdmin
-        .from("timesheet_months")
-        .select("status")
-        .eq("user_id", employee)
-        .eq("month", month)
-        .maybeSingle();
-
-      if (stErr) return NextResponse.json({ error: stErr.message }, { status: 500 });
-      if (!st || st.status !== "approved") {
-        return NextResponse.json({ error: "Mois non validé par l'admin." }, { status: 403 });
-      }
-    }
+    const employee = searchParams.get("employee") || "all";
 
     const { y, m0, firstDate, lastDate } = monthToRange(month);
     const monthLabel = monthLabelFR(month);
-    const logo = await tryRead("public/gaillard-logo.png");
 
-    // sites
+    const logoInfo = await readLogoAny();
+
+    // sites map
     const { data: sites, error: sitesErr } = await supabaseAdmin.from("sites").select("id,name");
     if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
     const siteName = new Map((sites ?? []).map((s: any) => [String(s.id), safeText(String(s.name ?? ""))]));
@@ -214,8 +197,6 @@ export async function GET(req: Request) {
     // employees
     let employees: EmployeePack[] = [];
     if (employee === "all") {
-      if (!isAdmin) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
-
       const { data: profs, error: pErr } = await supabaseAdmin
         .from("profiles")
         .select("user_id,full_name,is_active")
@@ -241,9 +222,13 @@ export async function GET(req: Request) {
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-    const logoImg = logo ? await pdfDoc.embedPng(logo) : null;
 
-    const PAGE_W = 842;
+    // ✅ NOUVEAU : embed selon type
+    let logoImg: any = null;
+    if (logoInfo.bytes && logoInfo.type === "png") logoImg = await pdfDoc.embedPng(logoInfo.bytes);
+    if (logoInfo.bytes && logoInfo.type === "jpg") logoImg = await pdfDoc.embedJpg(logoInfo.bytes);
+
+    const PAGE_W = 842; // A4 paysage
     const PAGE_H = 595;
     const MARGIN = 24;
 
@@ -251,6 +236,7 @@ export async function GET(req: Request) {
     const smallFont = colCount >= 6 ? 8 : 9;
 
     for (const emp of employees) {
+      // daily_status (type journée + fallback)
       const { data: stRows, error: stErr } = await supabaseAdmin
         .from("daily_status")
         .select("work_date,day_type,note,site_id,start_time,break_start,break_end,end_time")
@@ -263,6 +249,7 @@ export async function GET(req: Request) {
       const statusMap = new Map<string, any>();
       for (const r of (stRows ?? []) as any[]) statusMap.set(String(r.work_date), r);
 
+      // logs multi-chantiers
       const { data: logs, error: logErr } = await supabaseAdmin
         .from("daily_site_logs")
         .select("work_date,site_id,segment_type,started_at,ended_at")
@@ -273,9 +260,9 @@ export async function GET(req: Request) {
 
       if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
 
+      // map date -> site -> minutes (work)
       const workByDaySite = new Map<string, Map<string, number>>();
       const nowIso = new Date().toISOString();
-
       for (const l of (logs ?? []) as LogRow[]) {
         if (l.segment_type !== "work") continue;
         if (!l.site_id) continue;
@@ -285,10 +272,10 @@ export async function GET(req: Request) {
 
         if (!workByDaySite.has(l.work_date)) workByDaySite.set(l.work_date, new Map());
         const m = workByDaySite.get(l.work_date)!;
-        const sid = String(l.site_id);
-        m.set(sid, (m.get(sid) ?? 0) + mins);
+        m.set(String(l.site_id), (m.get(String(l.site_id)) ?? 0) + mins);
       }
 
+      // expenses totals (mois)
       const { data: expRows, error: expErr } = await supabaseAdmin
         .from("daily_expenses")
         .select("travel_chf,meals_qty,misc_chf")
@@ -305,14 +292,33 @@ export async function GET(req: Request) {
         misc += Number(r.misc_chf ?? 0);
       }
 
+      // 1 page / employé
       const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
+      // header
       const headerTop = PAGE_H - MARGIN;
-      if (logoImg) page.drawImage(logoImg, { x: MARGIN, y: headerTop - 72, width: 240, height: 70 });
 
-      page.drawText(safeText(`Nom de l'employe : ${emp.full_name}`), { x: PAGE_W - MARGIN - 320, y: headerTop - 38, size: 12, font: fontBold });
-      page.drawText(safeText(`Mois de : ${monthLabel}`), { x: PAGE_W - MARGIN - 320, y: headerTop - 58, size: 12, font: fontBold });
+      // ✅ NOUVEAU : scaleToFit pour PNG/JPG
+      if (logoImg) {
+        const scaled = logoImg.scaleToFit(240, 70);
+        page.drawImage(logoImg, { x: MARGIN, y: headerTop - 72, width: scaled.width, height: scaled.height });
+      }
 
+      page.drawText(safeText(`Nom de l'employe : ${emp.full_name}`), {
+        x: PAGE_W - MARGIN - 320,
+        y: headerTop - 38,
+        size: 12,
+        font: fontBold,
+      });
+
+      page.drawText(safeText(`Mois de : ${monthLabel}`), {
+        x: PAGE_W - MARGIN - 320,
+        y: headerTop - 58,
+        size: 12,
+        font: fontBold,
+      });
+
+      // grid
       const gridTop = PAGE_H - 150;
       const gridLeft = MARGIN;
       const gridW = PAGE_W - 2 * MARGIN;
@@ -330,7 +336,14 @@ export async function GET(req: Request) {
         for (let d = 0; d < 5; d++) {
           const y0 = gridTop - d * dayH;
 
-          page.drawRectangle({ x: x0, y: y0 - dayH, width: colW, height: dayH, borderWidth: 1, borderColor: rgb(0, 0, 0) });
+          page.drawRectangle({
+            x: x0,
+            y: y0 - dayH,
+            width: colW,
+            height: dayH,
+            borderWidth: 1,
+            borderColor: rgb(0, 0, 0),
+          });
 
           const date = addDays(weeks[w], d);
           const inMonth = date.getMonth() === m0;
@@ -355,13 +368,14 @@ export async function GET(req: Request) {
                 for (const [sid, mins] of bySite.entries()) {
                   const h = mins / 60;
                   total += h;
-                  entries.push({ name: siteName.get(String(sid)) ?? "-", hours: h });
+                  entries.push({ name: siteName.get(sid) ?? "-", hours: h });
                 }
               } else if (st) {
                 const chantier = st.site_id ? (siteName.get(String(st.site_id)) ?? "-") : "-";
-                const h = calcHoursFromStatus(st);
-                total += h;
-                if (h > 0) entries.push({ name: chantier, hours: h });
+                // fallback -> on ne calcule pas ici, juste affichage compact si besoin
+                // si tu veux, on peut remettre le calcHoursFromStatus, mais ton export logs suffit.
+                // (on laisse total = 0 si aucun log)
+                if (chantier !== "-" ) entries.push({ name: chantier, hours: 0 });
               }
 
               line2 = safeText(compactChantiers(entries, 2));
@@ -373,28 +387,83 @@ export async function GET(req: Request) {
           }
 
           page.drawText(line1, { x: x0 + 6, y: y0 - 16, size: dayFont, font: fontBold });
-          if (line2) page.drawText(line2, { x: x0 + 6, y: y0 - 32, size: smallFont, font: line2.startsWith("Chantiers") ? font : fontBold });
-          if (line3) page.drawText(line3, { x: x0 + 6, y: y0 - 48, size: smallFont, font: fontBold });
+
+          if (line2) {
+            page.drawText(line2, {
+              x: x0 + 6,
+              y: y0 - 32,
+              size: smallFont,
+              font: line2.startsWith("Chantiers") ? font : fontBold,
+            });
+          }
+          if (line3) {
+            page.drawText(line3, { x: x0 + 6, y: y0 - 48, size: smallFont, font: fontBold });
+          }
         }
 
         const yT = gridTop - 5 * dayH;
-        page.drawRectangle({ x: x0, y: yT - totalH, width: colW, height: totalH, borderWidth: 1, borderColor: rgb(0, 0, 0) });
-        page.drawText(safeText(`Total semaine : ${weekTotal.toFixed(2)} h`), { x: x0 + 6, y: yT - 16, size: smallFont, font: fontBold });
+        page.drawRectangle({
+          x: x0,
+          y: yT - totalH,
+          width: colW,
+          height: totalH,
+          borderWidth: 1,
+          borderColor: rgb(0, 0, 0),
+        });
+
+        page.drawText(safeText(`Total semaine : ${weekTotal.toFixed(2)} h`), {
+          x: x0 + 6,
+          y: yT - 16,
+          size: smallFont,
+          font: fontBold,
+        });
       }
 
+      // bas de page
       const bottomY = 45;
-      page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), { x: MARGIN, y: bottomY + 32, size: 10, font: fontBold });
-      page.drawText(safeText(`Repas exterieurs      :  ${meals}`), { x: MARGIN, y: bottomY + 16, size: 10, font: fontBold });
-      page.drawText(safeText(`Frais divers          :  ${misc.toFixed(2)} CHF`), { x: MARGIN, y: bottomY, size: 10, font: fontBold });
-      page.drawText(safeText(`Total des heures du mois = ${monthTotal.toFixed(2)} heures`), { x: PAGE_W - MARGIN - 360, y: bottomY + 14, size: 14, font: fontBold });
+
+      page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), {
+        x: MARGIN,
+        y: bottomY + 32,
+        size: 10,
+        font: fontBold,
+      });
+
+      page.drawText(safeText(`Repas exterieurs      :  ${meals}`), {
+        x: MARGIN,
+        y: bottomY + 16,
+        size: 10,
+        font: fontBold,
+      });
+
+      page.drawText(safeText(`Frais divers          :  ${misc.toFixed(2)} CHF`), {
+        x: MARGIN,
+        y: bottomY,
+        size: 10,
+        font: fontBold,
+      });
+
+      page.drawText(safeText(`Total des heures du mois = ${monthTotal.toFixed(2)} heures`), {
+        x: PAGE_W - MARGIN - 360,
+        y: bottomY + 14,
+        size: 14,
+        font: fontBold,
+      });
     }
 
     const pdfBytes = await pdfDoc.save();
-    const fileName = employee === "all" ? `Bordereau_${month}_TOUS.pdf` : `Bordereau_${month}.pdf`;
+
+    const fileName =
+      employee === "all"
+        ? `Bordereau_${month}_TOUS.pdf`
+        : `Bordereau_${month}_${employees[0].full_name.replace(/\s+/g, "_")}.pdf`;
 
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
-      headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${fileName}"` },
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${fileName}"`,
+      },
     });
   } catch (err: any) {
     return NextResponse.json({ error: String(err?.message ?? err), stack: err?.stack ?? null }, { status: 500 });
