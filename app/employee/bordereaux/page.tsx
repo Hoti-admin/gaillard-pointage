@@ -20,32 +20,111 @@ const THEME = {
 };
 
 const S: Record<string, CSSProperties> = {
-  page: { minHeight: "100vh", background: THEME.bg, color: THEME.text, padding: 18, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" },
-  container: { maxWidth: 920, margin: "18px auto", background: THEME.surface, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 18, boxShadow: "0 10px 30px rgba(0,0,0,0.25)" },
-  top: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const, alignItems: "center" },
-  brand: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" as const },
-  logo: { width: 190, height: "auto", borderRadius: 14, border: `1px solid ${THEME.border}`, filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))" },
+  page: {
+    minHeight: "100vh",
+    background: THEME.bg,
+    color: THEME.text,
+    padding: 18,
+    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
+  },
+  container: {
+    maxWidth: 920,
+    margin: "18px auto",
+    background: THEME.surface,
+    border: `1px solid ${THEME.border}`,
+    borderRadius: 18,
+    padding: 18,
+    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
+  },
+  top: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  brand: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  logo: {
+    width: 190,
+    height: "auto",
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))",
+  },
   h1: { margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: -0.3 },
   sub: { marginTop: 6, color: THEME.sub, fontWeight: 800 },
-  card: { background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 14, marginTop: 14 },
+
+  card: {
+    background: THEME.card,
+    border: `1px solid ${THEME.border}`,
+    borderRadius: 16,
+    padding: 14,
+    marginTop: 14,
+  },
+
   row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
   row3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },
+
   label: { display: "block", fontWeight: 900, marginBottom: 6, color: THEME.sub },
-  select: { width: "100%", padding: 12, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" },
-  btnGhost: { width: "100%", padding: 12, fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, cursor: "pointer" },
-  btnDisabled: { width: "100%", padding: 12, fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: "rgba(255,255,255,0.04)", color: "rgba(229,231,235,0.5)", cursor: "not-allowed" },
-  msg: { marginTop: 12, padding: "10px 12px", borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800, whiteSpace: "pre-wrap" },
-  pills: { display: "flex", gap: 10, flexWrap: "wrap" as const, marginTop: 10 },
+  select: {
+    width: "100%",
+    padding: 12,
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.card2,
+    color: THEME.text,
+    outline: "none",
+  },
+
+  btnGhost: {
+    width: "100%",
+    padding: 12,
+    fontWeight: 900,
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.card2,
+    color: THEME.text,
+    cursor: "pointer",
+  },
+  btnDisabled: {
+    width: "100%",
+    padding: 12,
+    fontWeight: 900,
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    background: "rgba(255,255,255,0.04)",
+    color: "rgba(229,231,235,0.5)",
+    cursor: "not-allowed",
+  },
+
+  msg: {
+    marginTop: 12,
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: `1px solid ${THEME.border}`,
+    background: THEME.card2,
+    fontWeight: 800,
+    whiteSpace: "pre-wrap",
+  },
+
+  pills: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 },
 };
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
 }
+
 function monthLabelFR(ym: string) {
   const [y, m] = ym.split("-");
   const d = new Date(Number(y), Number(m) - 1, 1);
   return d.toLocaleDateString("fr-CH", { month: "long", year: "numeric" });
 }
+
 function isIOS() {
   if (typeof navigator === "undefined") return false;
   return /iPad|iPhone|iPod/.test(navigator.userAgent);
@@ -107,23 +186,25 @@ export default function EmployeeBordereauxPage() {
 
     const j = await res.json();
     const m = new Map<string, TimesheetStatus>();
+
+    // ✅ NORMALISATION: on stocke toujours en "YYYY-MM"
     for (const r of (j?.rows ?? []) as any[]) {
       const st: TimesheetStatus = r?.status === "approved" ? "approved" : "pending";
-      m.set(String(r.month), st);
+      const mk = String(r.month ?? "").slice(0, 7);
+      if (mk) m.set(mk, st);
     }
+
     setStatusMap(m);
 
-    // ✅ auto: si le mois courant est "pending" mais il existe des mois validés, on sélectionne le dernier validé
+    // ✅ Auto-pick : dernier mois validé si dispo
     if (!didAutoPick) {
       const approvedMonths = Array.from(m.entries())
         .filter(([, st]) => st === "approved")
         .map(([mo]) => mo)
-        .sort(); // "YYYY-MM" tri ok
+        .sort();
       if (approvedMonths.length > 0) {
         const latest = approvedMonths[approvedMonths.length - 1];
         setMonth(latest);
-      } else {
-        // sinon on garde le mois actuel
       }
       setDidAutoPick(true);
     }
@@ -170,11 +251,12 @@ export default function EmployeeBordereauxPage() {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   }
 
-  // ⚠️ On garde tes endpoints export existants (si tu as rendu /api/export/pdf compatible employee=me)
+  // ⚠️ suppose que tes exports acceptent employee=me
   async function exportPDF() {
     const url = `/api/export/pdf?month=${encodeURIComponent(month)}&employee=me`;
     await downloadAuthed(url, `Bordereau_${month}.pdf`);
   }
+
   async function exportXLSX() {
     const url = `/api/export/xlsx?month=${encodeURIComponent(month)}&employee=me`;
     await downloadAuthed(url, `Bordereau_${month}.xlsx`);
@@ -228,7 +310,9 @@ export default function EmployeeBordereauxPage() {
               <label style={S.label}>Année</label>
               <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={S.select}>
                 {yearOptions.map((y) => (
-                  <option key={y} value={y}>{y}</option>
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
                 ))}
               </select>
             </div>
@@ -237,7 +321,9 @@ export default function EmployeeBordereauxPage() {
               <label style={S.label}>Mois</label>
               <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.select}>
                 {monthOptions.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
                 ))}
               </select>
 
@@ -252,10 +338,18 @@ export default function EmployeeBordereauxPage() {
             <div>
               <label style={S.label}>Téléchargements</label>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <button onClick={exportXLSX} style={canDownload ? S.btnGhost : S.btnDisabled} disabled={!canDownload || loading}>
+                <button
+                  onClick={exportXLSX}
+                  style={canDownload ? S.btnGhost : S.btnDisabled}
+                  disabled={!canDownload || loading}
+                >
                   📗 Excel
                 </button>
-                <button onClick={exportPDF} style={canDownload ? S.btnGhost : S.btnDisabled} disabled={!canDownload || loading}>
+                <button
+                  onClick={exportPDF}
+                  style={canDownload ? S.btnGhost : S.btnDisabled}
+                  disabled={!canDownload || loading}
+                >
                   📄 PDF
                 </button>
               </div>
@@ -269,8 +363,12 @@ export default function EmployeeBordereauxPage() {
           </div>
 
           <div style={{ ...S.row2, marginTop: 12 }}>
-            <button onClick={loadStatuses} style={S.btnGhost} disabled={loading}>🔄 Recharger</button>
-            <button onClick={signOut} style={S.btnGhost} disabled={loading}>Se déconnecter</button>
+            <button onClick={loadStatuses} style={S.btnGhost} disabled={loading}>
+              🔄 Recharger
+            </button>
+            <button onClick={signOut} style={S.btnGhost} disabled={loading}>
+              Se déconnecter
+            </button>
           </div>
 
           {msg.trim() && <div style={S.msg}>{msg}</div>}
