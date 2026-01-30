@@ -14,9 +14,11 @@ type LogRow = {
   started_at: string;
   ended_at: string | null;
 };
-
 type EmployeePack = { user_id: string; full_name: string };
-type LogoInfo = { bytes: Uint8Array | null; type: "png" | "jpg" | null };
+
+function d10(v: any) {
+  return String(v ?? "").slice(0, 10); // ✅ YYYY-MM-DD
+}
 
 function safeText(s: string) {
   if (!s) return "";
@@ -33,7 +35,6 @@ function safeText(s: string) {
   }
   return out;
 }
-
 function clip(t: string, n: number) {
   const s = safeText(t);
   if (!s) return "";
@@ -46,13 +47,11 @@ function monthToRange(month: string) {
   const [yStr, mStr] = month.split("-");
   const y = parseInt(yStr, 10);
   const m0 = parseInt(mStr, 10) - 1;
-
   const lastDay = new Date(y, m0 + 1, 0).getDate();
   const firstDate = `${y}-${String(m0 + 1).padStart(2, "0")}-01`;
   const lastDate = `${y}-${String(m0 + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   return { y, m0, firstDate, lastDate };
 }
-
 function monthLabelFR(month: string) {
   const [y, mo] = month.split("-");
   const d = new Date(parseInt(y, 10), parseInt(mo, 10) - 1, 1);
@@ -77,14 +76,13 @@ function getWeeksForMonth(y: number, m0: number) {
   const last = new Date(y, m0 + 1, 0);
   const start = mondayOfWeek(first);
   const end = mondayOfWeek(last);
-
   const weeks: Date[] = [];
   let cur = new Date(start);
   while (cur <= end) {
     weeks.push(new Date(cur));
     cur = addDays(cur, 7);
   }
-  return weeks; // 4..6
+  return weeks;
 }
 function frDayName(i: number) {
   return safeText(["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"][i] ?? "");
@@ -95,27 +93,36 @@ function fmtFRDate(d: Date) {
   const yy = d.getFullYear();
   return `${dd}.${mm}.${yy}`;
 }
-
 function dayTypeLabel(t: DayType, note?: string | null) {
   const n = safeText(note ?? "");
   switch (t) {
-    case "holiday":
-      return "FERIE";
-    case "sick":
-      return "MALADIE";
-    case "leave":
-      return "CONGE";
-    case "accident":
-      return "ACCIDENT";
-    case "vacation":
-      return "VACANCES";
-    case "other":
-      return n.trim() ? `AUTRE: ${n.trim()}` : "AUTRE";
-    default:
-      return "";
+    case "holiday": return "FERIE";
+    case "sick": return "MALADIE";
+    case "leave": return "CONGE";
+    case "accident": return "ACCIDENT";
+    case "vacation": return "VACANCES";
+    case "other": return n.trim() ? `AUTRE: ${n.trim()}` : "AUTRE";
+    default: return "";
   }
 }
 
+function toMinutes(hhmm: string | null | undefined) {
+  if (!hhmm) return null;
+  const v = String(hhmm).slice(0, 5);
+  const [h, m] = v.split(":").map((x) => parseInt(x, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+function calcHoursFromStatus(r: any) {
+  const st = toMinutes(r.start_time);
+  const bs = toMinutes(r.break_start);
+  const be = toMinutes(r.break_end);
+  const et = toMinutes(r.end_time);
+  if (st == null || et == null) return 0;
+  const total = Math.max(0, et - st);
+  const pause = bs != null && be != null ? Math.max(0, be - bs) : 0;
+  return Math.max(0, total - pause) / 60;
+}
 function minutesBetween(aIso: string, bIso: string) {
   const a = new Date(aIso).getTime();
   const b = new Date(bIso).getTime();
@@ -146,18 +153,14 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
   }
 }
 
-// ✅ JPG priorité (pour les bordereaux)
-async function readLogoAny(): Promise<LogoInfo> {
+async function readLogoAny() {
   const jpg = await tryRead("public/gaillard-logo.jpg");
-  if (jpg) return { bytes: jpg, type: "jpg" };
-
+  if (jpg) return { bytes: jpg, type: "jpg" as const };
   const jpeg = await tryRead("public/gaillard-logo.jpeg");
-  if (jpeg) return { bytes: jpeg, type: "jpg" };
-
+  if (jpeg) return { bytes: jpeg, type: "jpg" as const };
   const png = await tryRead("public/gaillard-logo.png");
-  if (png) return { bytes: png, type: "png" };
-
-  return { bytes: null, type: null };
+  if (png) return { bytes: png, type: "png" as const };
+  return { bytes: null as Uint8Array | null, type: null as "png" | "jpg" | null };
 }
 
 function compactChantiers(entries: Array<{ name: string; hours: number }>, maxShow = 2) {
@@ -165,7 +168,6 @@ function compactChantiers(entries: Array<{ name: string; hours: number }>, maxSh
   const sorted = [...entries].sort((a, b) => b.hours - a.hours);
   const shown = sorted.slice(0, maxShow);
   const more = sorted.length - shown.length;
-
   const parts = shown.map((e) => `${clip(e.name, 18)} ${e.hours.toFixed(2)}h`);
   let s = `Chantiers: ${parts.join(" / ")}`;
   if (more > 0) s += ` (+${more})`;
@@ -188,14 +190,12 @@ export async function GET(req: Request) {
     const { y, m0, firstDate, lastDate } = monthToRange(month);
     const monthLabel = monthLabelFR(month);
 
-    const logoInfo = await readLogoAny();
+    const logo = await readLogoAny();
 
-    // sites map
     const { data: sites, error: sitesErr } = await supabaseAdmin.from("sites").select("id,name");
     if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
     const siteName = new Map((sites ?? []).map((s: any) => [String(s.id), safeText(String(s.name ?? ""))]));
 
-    // employees
     let employees: EmployeePack[] = [];
     if (employee === "all") {
       const { data: profs, error: pErr } = await supabaseAdmin
@@ -205,17 +205,13 @@ export async function GET(req: Request) {
         .order("full_name", { ascending: true });
 
       if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-      employees = (profs ?? []).map((p: any) => ({
-        user_id: String(p.user_id),
-        full_name: safeText(String(p.full_name ?? "")),
-      }));
+      employees = (profs ?? []).map((p: any) => ({ user_id: String(p.user_id), full_name: safeText(String(p.full_name ?? "")) }));
     } else {
       const { data: prof, error: pErr } = await supabaseAdmin
         .from("profiles")
         .select("user_id,full_name,is_active")
         .eq("user_id", employee)
         .single();
-
       if (pErr || !prof) return NextResponse.json({ error: "Employe introuvable" }, { status: 400 });
       employees = [{ user_id: String(prof.user_id), full_name: safeText(String(prof.full_name ?? "")) }];
     }
@@ -228,21 +224,24 @@ export async function GET(req: Request) {
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
     let logoImg: any = null;
-    if (logoInfo.bytes && logoInfo.type === "png") logoImg = await pdfDoc.embedPng(logoInfo.bytes);
-    if (logoInfo.bytes && logoInfo.type === "jpg") logoImg = await pdfDoc.embedJpg(logoInfo.bytes);
+    if (logo.bytes && logo.type === "png") logoImg = await pdfDoc.embedPng(logo.bytes);
+    if (logo.bytes && logo.type === "jpg") logoImg = await pdfDoc.embedJpg(logo.bytes);
 
-    const PAGE_W = 842; // A4 paysage
+    const PAGE_W = 842;
     const PAGE_H = 595;
     const MARGIN = 24;
 
     const dayFont = colCount >= 6 ? 9 : 10;
     const smallFont = colCount >= 6 ? 8 : 9;
 
+    const today = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+
     for (const emp of employees) {
       // daily_status
       const { data: stRows, error: stErr } = await supabaseAdmin
         .from("daily_status")
-        .select("work_date,day_type,note,site_id")
+        .select("work_date,day_type,note,site_id,start_time,break_start,break_end,end_time")
         .eq("user_id", emp.user_id)
         .gte("work_date", firstDate)
         .lte("work_date", lastDate)
@@ -251,7 +250,7 @@ export async function GET(req: Request) {
       if (stErr) return NextResponse.json({ error: stErr.message }, { status: 500 });
 
       const statusMap = new Map<string, any>();
-      for (const r of (stRows ?? []) as any[]) statusMap.set(String(r.work_date), r);
+      for (const r of (stRows ?? []) as any[]) statusMap.set(d10(r.work_date), r);
 
       // logs multi-chantiers
       const { data: logs, error: logErr } = await supabaseAdmin
@@ -265,18 +264,21 @@ export async function GET(req: Request) {
       if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
 
       const workByDaySite = new Map<string, Map<string, number>>();
-      const nowIso = new Date().toISOString();
-
       for (const l of (logs ?? []) as LogRow[]) {
         if (l.segment_type !== "work") continue;
         if (!l.site_id) continue;
 
-        const end = l.ended_at ?? nowIso;
-        const mins = minutesBetween(l.started_at, end);
+        const wd = d10(l.work_date);
+
+        // si segment ouvert sur un jour passé -> on ignore (sinon ça explose le total)
+        if (!l.ended_at && wd !== today) continue;
+
+        const endIso = l.ended_at ?? nowIso;
+        const mins = minutesBetween(l.started_at, endIso);
         if (mins <= 0) continue;
 
-        if (!workByDaySite.has(l.work_date)) workByDaySite.set(l.work_date, new Map());
-        const m = workByDaySite.get(l.work_date)!;
+        if (!workByDaySite.has(wd)) workByDaySite.set(wd, new Map());
+        const m = workByDaySite.get(wd)!;
         const sid = String(l.site_id);
         m.set(sid, (m.get(sid) ?? 0) + mins);
       }
@@ -284,7 +286,7 @@ export async function GET(req: Request) {
       // expenses totals
       const { data: expRows, error: expErr } = await supabaseAdmin
         .from("daily_expenses")
-        .select("travel_chf,meals_qty,misc_chf")
+        .select("work_date,travel_chf,meals_qty,misc_chf")
         .eq("user_id", emp.user_id)
         .gte("work_date", firstDate)
         .lte("work_date", lastDate);
@@ -298,10 +300,8 @@ export async function GET(req: Request) {
         misc += Number(r.misc_chf ?? 0);
       }
 
-      // page
       const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
-      // header
       const headerTop = PAGE_H - MARGIN;
       if (logoImg) {
         const scaled = logoImg.scaleToFit(240, 70);
@@ -314,7 +314,6 @@ export async function GET(req: Request) {
         size: 12,
         font: fontBold,
       });
-
       page.drawText(safeText(`Mois de : ${monthLabel}`), {
         x: PAGE_W - MARGIN - 320,
         y: headerTop - 58,
@@ -322,7 +321,6 @@ export async function GET(req: Request) {
         font: fontBold,
       });
 
-      // grid
       const gridTop = PAGE_H - 150;
       const gridLeft = MARGIN;
       const gridW = PAGE_W - 2 * MARGIN;
@@ -374,6 +372,14 @@ export async function GET(req: Request) {
                   total += h;
                   entries.push({ name: siteName.get(sid) ?? "-", hours: h });
                 }
+              } else if (st) {
+                // ✅ fallback daily_status (employee/day)
+                const h = calcHoursFromStatus(st);
+                const chantier = st.site_id ? (siteName.get(String(st.site_id)) ?? "-") : "-";
+                if (h > 0) {
+                  total += h;
+                  entries.push({ name: chantier, hours: h });
+                }
               }
 
               line2 = safeText(compactChantiers(entries, 2));
@@ -385,19 +391,8 @@ export async function GET(req: Request) {
           }
 
           page.drawText(line1, { x: x0 + 6, y: y0 - 16, size: dayFont, font: fontBold });
-
-          if (line2) {
-            page.drawText(line2, {
-              x: x0 + 6,
-              y: y0 - 32,
-              size: smallFont,
-              font: line2.startsWith("Chantiers") ? font : fontBold,
-            });
-          }
-
-          if (line3) {
-            page.drawText(line3, { x: x0 + 6, y: y0 - 48, size: smallFont, font: fontBold });
-          }
+          if (line2) page.drawText(line2, { x: x0 + 6, y: y0 - 32, size: smallFont, font: line2.startsWith("Chantiers") ? font : fontBold });
+          if (line3) page.drawText(line3, { x: x0 + 6, y: y0 - 48, size: smallFont, font: fontBold });
         }
 
         const yT = gridTop - 5 * dayH;
@@ -418,29 +413,10 @@ export async function GET(req: Request) {
         });
       }
 
-      // bottom
       const bottomY = 45;
-
-      page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), {
-        x: MARGIN,
-        y: bottomY + 32,
-        size: 10,
-        font: fontBold,
-      });
-
-      page.drawText(safeText(`Repas exterieurs      :  ${meals}`), {
-        x: MARGIN,
-        y: bottomY + 16,
-        size: 10,
-        font: fontBold,
-      });
-
-      page.drawText(safeText(`Frais divers          :  ${misc.toFixed(2)} CHF`), {
-        x: MARGIN,
-        y: bottomY,
-        size: 10,
-        font: fontBold,
-      });
+      page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), { x: MARGIN, y: bottomY + 32, size: 10, font: fontBold });
+      page.drawText(safeText(`Repas exterieurs      :  ${meals}`), { x: MARGIN, y: bottomY + 16, size: 10, font: fontBold });
+      page.drawText(safeText(`Frais divers          :  ${misc.toFixed(2)} CHF`), { x: MARGIN, y: bottomY, size: 10, font: fontBold });
 
       page.drawText(safeText(`Total des heures du mois = ${monthTotal.toFixed(2)} heures`), {
         x: PAGE_W - MARGIN - 360,
@@ -462,6 +438,7 @@ export async function GET(req: Request) {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${fileName}"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (err: any) {
