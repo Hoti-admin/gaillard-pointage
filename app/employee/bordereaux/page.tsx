@@ -20,108 +20,21 @@ const THEME = {
 };
 
 const S: Record<string, CSSProperties> = {
-  page: {
-    minHeight: "100vh",
-    background: THEME.bg,
-    color: THEME.text,
-    padding: 18,
-    fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
-  },
-  container: {
-    maxWidth: 920,
-    margin: "18px auto",
-    background: THEME.surface,
-    border: `1px solid ${THEME.border}`,
-    borderRadius: 18,
-    padding: 18,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
-  },
-  top: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap" as const,
-    alignItems: "center",
-  },
-  brand: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap" as const,
-  },
-  logo: {
-    width: 190,
-    height: "auto",
-    borderRadius: 14,
-    border: `1px solid ${THEME.border}`,
-    filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))",
-  },
+  page: { minHeight: "100vh", background: THEME.bg, color: THEME.text, padding: 18, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial" },
+  container: { maxWidth: 920, margin: "18px auto", background: THEME.surface, border: `1px solid ${THEME.border}`, borderRadius: 18, padding: 18, boxShadow: "0 10px 30px rgba(0,0,0,0.25)" },
+  top: { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const, alignItems: "center" },
+  brand: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" as const },
+  logo: { width: 190, height: "auto", borderRadius: 14, border: `1px solid ${THEME.border}`, filter: "drop-shadow(0 6px 14px rgba(0,0,0,0.35))" },
   h1: { margin: 0, fontSize: 26, fontWeight: 900, letterSpacing: -0.3 },
   sub: { marginTop: 6, color: THEME.sub, fontWeight: 800 },
-
-  card: {
-    background: THEME.card,
-    border: `1px solid ${THEME.border}`,
-    borderRadius: 16,
-    padding: 14,
-    marginTop: 14,
-  },
-
+  card: { background: THEME.card, border: `1px solid ${THEME.border}`, borderRadius: 16, padding: 14, marginTop: 14 },
   row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
   row3: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 },
-
   label: { display: "block", fontWeight: 900, marginBottom: 6, color: THEME.sub },
-  select: {
-    width: "100%",
-    padding: 12,
-    borderRadius: 14,
-    border: `1px solid ${THEME.border}`,
-    background: THEME.card2,
-    color: THEME.text,
-    outline: "none",
-  },
-
-  btnPrimary: {
-    width: "100%",
-    padding: 14,
-    fontWeight: 900,
-    borderRadius: 14,
-    border: `1px solid ${THEME.red}`,
-    background: THEME.red,
-    color: "#fff",
-    cursor: "pointer",
-  },
-  btnGhost: {
-    width: "100%",
-    padding: 12,
-    fontWeight: 900,
-    borderRadius: 14,
-    border: `1px solid ${THEME.border}`,
-    background: THEME.card2,
-    color: THEME.text,
-    cursor: "pointer",
-  },
-  btnDisabled: {
-    width: "100%",
-    padding: 12,
-    fontWeight: 900,
-    borderRadius: 14,
-    border: `1px solid ${THEME.border}`,
-    background: "rgba(255,255,255,0.04)",
-    color: "rgba(229,231,235,0.5)",
-    cursor: "not-allowed",
-  },
-
-  msg: {
-    marginTop: 12,
-    padding: "10px 12px",
-    borderRadius: 14,
-    border: `1px solid ${THEME.border}`,
-    background: THEME.card2,
-    fontWeight: 800,
-    whiteSpace: "pre-wrap",
-  },
-
+  select: { width: "100%", padding: 12, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" },
+  btnGhost: { width: "100%", padding: 12, fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, cursor: "pointer" },
+  btnDisabled: { width: "100%", padding: 12, fontWeight: 900, borderRadius: 14, border: `1px solid ${THEME.border}`, background: "rgba(255,255,255,0.04)", color: "rgba(229,231,235,0.5)", cursor: "not-allowed" },
+  msg: { marginTop: 12, padding: "10px 12px", borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800, whiteSpace: "pre-wrap" },
   pills: { display: "flex", gap: 10, flexWrap: "wrap" as const, marginTop: 10 },
 };
 
@@ -150,6 +63,7 @@ export default function EmployeeBordereauxPage() {
   const [month, setMonth] = useState<string>(`${baseYear}-${pad2(now.getMonth() + 1)}`);
 
   const [statusMap, setStatusMap] = useState<Map<string, TimesheetStatus>>(new Map());
+  const [didAutoPick, setDidAutoPick] = useState(false);
 
   const yearOptions = useMemo(() => [baseYear, baseYear + 1, baseYear + 2], [baseYear]);
 
@@ -178,10 +92,10 @@ export default function EmployeeBordereauxPage() {
       return;
     }
 
-    const res = await fetch(
-      `/api/employee/timesheets/month-status?year=${encodeURIComponent(String(year))}`,
-      { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" }
-    );
+    const res = await fetch(`/api/employee/timesheets/month-status?year=${encodeURIComponent(String(year))}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
 
     setLoading(false);
 
@@ -198,9 +112,23 @@ export default function EmployeeBordereauxPage() {
       m.set(String(r.month), st);
     }
     setStatusMap(m);
+
+    // ✅ auto: si le mois courant est "pending" mais il existe des mois validés, on sélectionne le dernier validé
+    if (!didAutoPick) {
+      const approvedMonths = Array.from(m.entries())
+        .filter(([, st]) => st === "approved")
+        .map(([mo]) => mo)
+        .sort(); // "YYYY-MM" tri ok
+      if (approvedMonths.length > 0) {
+        const latest = approvedMonths[approvedMonths.length - 1];
+        setMonth(latest);
+      } else {
+        // sinon on garde le mois actuel
+      }
+      setDidAutoPick(true);
+    }
   }
 
-  // ✅ téléchargement compatible iPhone
   async function downloadAuthed(url: string, filename: string) {
     setMsg("");
 
@@ -242,13 +170,11 @@ export default function EmployeeBordereauxPage() {
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   }
 
+  // ⚠️ On garde tes endpoints export existants (si tu as rendu /api/export/pdf compatible employee=me)
   async function exportPDF() {
-    // ⚠️ On suppose que ton /api/export/pdf accepte employee=user_id automatiquement via token (ou employee=all interdit)
-    // Si ton endpoint demande employee=uuid, on le passe en "me"
     const url = `/api/export/pdf?month=${encodeURIComponent(month)}&employee=me`;
     await downloadAuthed(url, `Bordereau_${month}.pdf`);
   }
-
   async function exportXLSX() {
     const url = `/api/export/xlsx?month=${encodeURIComponent(month)}&employee=me`;
     await downloadAuthed(url, `Bordereau_${month}.xlsx`);
@@ -271,7 +197,8 @@ export default function EmployeeBordereauxPage() {
 
   useEffect(() => {
     if (checking) return;
-    setMonth(`${year}-01`);
+    setDidAutoPick(false);
+    setMonth(`${year}-${pad2(new Date().getMonth() + 1)}`);
     loadStatuses();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [year]);
@@ -301,9 +228,7 @@ export default function EmployeeBordereauxPage() {
               <label style={S.label}>Année</label>
               <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={S.select}>
                 {yearOptions.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
+                  <option key={y} value={y}>{y}</option>
                 ))}
               </select>
             </div>
@@ -312,9 +237,7 @@ export default function EmployeeBordereauxPage() {
               <label style={S.label}>Mois</label>
               <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.select}>
                 {monthOptions.map((m) => (
-                  <option key={m.value} value={m.value}>
-                    {m.label}
-                  </option>
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
 
@@ -336,6 +259,7 @@ export default function EmployeeBordereauxPage() {
                   📄 PDF
                 </button>
               </div>
+
               {!canDownload && (
                 <div style={{ marginTop: 8, color: THEME.sub, fontWeight: 800 }}>
                   ➜ Ton admin doit valider le mois avant téléchargement.
@@ -345,12 +269,8 @@ export default function EmployeeBordereauxPage() {
           </div>
 
           <div style={{ ...S.row2, marginTop: 12 }}>
-            <button onClick={loadStatuses} style={S.btnGhost} disabled={loading}>
-              🔄 Recharger
-            </button>
-            <button onClick={signOut} style={S.btnGhost} disabled={loading}>
-              Se déconnecter
-            </button>
+            <button onClick={loadStatuses} style={S.btnGhost} disabled={loading}>🔄 Recharger</button>
+            <button onClick={signOut} style={S.btnGhost} disabled={loading}>Se déconnecter</button>
           </div>
 
           {msg.trim() && <div style={S.msg}>{msg}</div>}
@@ -362,7 +282,6 @@ export default function EmployeeBordereauxPage() {
             {Array.from({ length: 12 }).map((_, i) => {
               const ym = `${year}-${pad2(i + 1)}`;
               const st = statusMap.get(ym) ?? "pending";
-
               const bg = st === "approved" ? "rgba(34,197,94,0.16)" : "rgba(245,158,11,0.12)";
               const bd = st === "approved" ? THEME.green : THEME.amber;
 
