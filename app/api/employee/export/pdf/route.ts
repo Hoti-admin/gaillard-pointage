@@ -7,10 +7,10 @@ import path from "path";
 export const runtime = "nodejs";
 
 type DayType = "work" | "holiday" | "sick" | "leave" | "accident" | "vacation" | "other";
+
 type LogRow = {
   work_date: string;
   site_id: string | null;
- I
   segment_type: "work" | "pause";
   started_at: string;
   ended_at: string | null;
@@ -170,7 +170,6 @@ async function tryRead(relPath: string): Promise<Uint8Array | null> {
   }
 }
 
-// fallback decode sub si getUser échoue
 function decodeSubFromJWT(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -199,10 +198,11 @@ export async function GET(req: Request) {
 
     const { searchParams } = new URL(req.url);
     const monthParam = searchParams.get("month") || new Date().toISOString().slice(0, 7);
+
     const { y, m0, firstDate, lastDate, ym } = monthToRange(monthParam);
     const monthLabel = monthLabelFR(ym);
 
-    // ✅ vérifier que le mois est validé pour CET employé
+    // ✅ check validated month for this employee
     const { data: stOk, error: stErr } = await supabaseAdmin
       .from("timesheet_months")
       .select("status")
@@ -221,11 +221,11 @@ export async function GET(req: Request) {
       .select("full_name")
       .eq("user_id", user_id)
       .maybeSingle();
-    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
 
+    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
     const fullName = safeText(prof?.full_name ?? "");
 
-    // sites map
+    // sites
     const { data: sites, error: sitesErr } = await supabaseAdmin.from("sites").select("id,name");
     if (sitesErr) return NextResponse.json({ error: sitesErr.message }, { status: 500 });
     const siteName = new Map((sites ?? []).map((s: any) => [String(s.id), safeText(String(s.name ?? ""))]));
@@ -238,12 +238,13 @@ export async function GET(req: Request) {
       .gte("work_date", firstDate)
       .lte("work_date", lastDate)
       .order("work_date", { ascending: true });
+
     if (dsErr) return NextResponse.json({ error: dsErr.message }, { status: 500 });
 
     const statusMap = new Map<string, any>();
     for (const r of (stRows ?? []) as any[]) statusMap.set(String(r.work_date), r);
 
-    // logs multi-chantiers
+    // logs multi
     const { data: logs, error: logErr } = await supabaseAdmin
       .from("daily_site_logs")
       .select("work_date,site_id,segment_type,started_at,ended_at")
@@ -251,13 +252,16 @@ export async function GET(req: Request) {
       .gte("work_date", firstDate)
       .lte("work_date", lastDate)
       .order("started_at", { ascending: true });
+
     if (logErr) return NextResponse.json({ error: logErr.message }, { status: 500 });
 
-    const workByDaySite = new Map<string, Map<string, number>>(); // date -> site -> minutes
+    const workByDaySite = new Map<string, Map<string, number>>();
     const nowIso = new Date().toISOString();
+
     for (const l of (logs ?? []) as any as LogRow[]) {
       if (l.segment_type !== "work") continue;
       if (!l.site_id) continue;
+
       const end = l.ended_at ?? nowIso;
       const mins = minutesBetween(l.started_at, end);
       if (mins <= 0) continue;
@@ -274,16 +278,19 @@ export async function GET(req: Request) {
       .eq("user_id", user_id)
       .gte("work_date", firstDate)
       .lte("work_date", lastDate);
+
     if (expErr) return NextResponse.json({ error: expErr.message }, { status: 500 });
 
-    let travel = 0, meals = 0, misc = 0;
+    let travel = 0,
+      meals = 0,
+      misc = 0;
     for (const r of (expRows ?? []) as any[]) {
       travel += Number(r.travel_chf ?? 0);
       meals += Number(r.meals_qty ?? 0);
       misc += Number(r.misc_chf ?? 0);
     }
 
-    // logo jpg -> png fallback
+    // logo jpg preferred
     const logoJpg = await tryRead("public/gaillard-logo.jpg");
     const logoPng = await tryRead("public/gaillard-logo.png");
     const logo = logoJpg ?? logoPng ?? null;
@@ -299,7 +306,7 @@ export async function GET(req: Request) {
       ? (logoJpg ? await pdfDoc.embedJpg(logoJpg) : await pdfDoc.embedPng(logoPng!))
       : null;
 
-    const PAGE_W = 842; // A4 landscape
+    const PAGE_W = 842;
     const PAGE_H = 595;
     const MARGIN = 24;
 
@@ -308,7 +315,6 @@ export async function GET(req: Request) {
 
     const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
 
-    // header
     const headerTop = PAGE_H - MARGIN;
     if (logoImg) page.drawImage(logoImg, { x: MARGIN, y: headerTop - 86, width: 260, height: 78 });
 
@@ -326,7 +332,6 @@ export async function GET(req: Request) {
       font: fontBold,
     });
 
-    // grid
     const gridTop = PAGE_H - 150;
     const gridLeft = MARGIN;
     const gridW = PAGE_W - 2 * MARGIN;
@@ -363,7 +368,6 @@ export async function GET(req: Request) {
         if (inMonth) {
           const key = `${y}-${String(m0 + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
           const st = statusMap.get(key);
-
           const dt: DayType = (st?.day_type ?? "work") as DayType;
 
           if (dt !== "work") {
@@ -427,7 +431,6 @@ export async function GET(req: Request) {
       });
     }
 
-    // bottom
     const bottomY = 45;
 
     page.drawText(safeText(`Frais de deplacement :  ${travel.toFixed(2)} CHF`), {
