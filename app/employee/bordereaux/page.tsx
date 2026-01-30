@@ -253,12 +253,14 @@ export default function EmployeeBordereauxPage() {
 
   // ⚠️ suppose que tes exports acceptent employee=me
   async function exportPDF() {
-    const url = `/api/export/pdf?month=${encodeURIComponent(month)}&employee=me`;
+    const url = `/api/employee/export/pdf?month=${encodeURIComponent(month)}`;
+
     await downloadAuthed(url, `Bordereau_${month}.pdf`);
   }
 
   async function exportXLSX() {
-    const url = `/api/export/xlsx?month=${encodeURIComponent(month)}&employee=me`;
+    const url = `/api/employee/export/xlsx?month=${encodeURIComponent(month)}`;
+
     await downloadAuthed(url, `Bordereau_${month}.xlsx`);
   }
 
