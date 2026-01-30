@@ -6,8 +6,7 @@ export const runtime = "nodejs";
 type StatusOut = "pending" | "approved";
 
 function monthKey(v: any): string {
-  // ✅ marche si v = "2026-01", "2026-01-01", Date, etc.
-  return String(v ?? "").slice(0, 7);
+  return String(v ?? "").slice(0, 7); // YYYY-MM
 }
 
 function normalizeStatus(v: any): StatusOut {
@@ -17,15 +16,15 @@ function normalizeStatus(v: any): StatusOut {
   return "pending";
 }
 
-// ✅ on essaie plusieurs tables / colonnes possibles (selon ton projet)
-const CANDIDATES = [
+// ✅ NO "as const" (évite l’erreur TS deep)
+const CANDIDATES: Array<{ table: string; userCol: string }> = [
   { table: "timesheets_month_status", userCol: "user_id" },
   { table: "timesheets_month_status", userCol: "employee_id" },
   { table: "timesheet_month_status", userCol: "user_id" },
   { table: "timesheet_month_status", userCol: "employee_id" },
   { table: "timesheets_status", userCol: "user_id" },
   { table: "timesheet_status", userCol: "user_id" },
-] as const;
+];
 
 function pickMonthField(row: any) {
   return row?.month ?? row?.month_key ?? row?.period ?? row?.pay_month ?? row?.request_month ?? row?.work_month ?? null;
@@ -49,17 +48,11 @@ export async function GET(req: Request) {
     const year = String(searchParams.get("year") || new Date().getFullYear());
 
     for (const cand of CANDIDATES) {
-      const { data, error } = await supabaseAdmin
-        .from(cand.table)
-        .select("*")
-        .eq(cand.userCol as any, user_id)
-        .order("month", { ascending: true })
-        .limit(200);
+      // ✅ cast "any" pour éviter TS deep
+      const q: any = (supabaseAdmin as any).from(cand.table).select("*").eq(cand.userCol, user_id).limit(200);
 
-      if (error) {
-        // table/col inconnue => on essaye la suivante
-        continue;
-      }
+      const { data, error } = await q;
+      if (error) continue;
 
       const rowsIn = (data ?? []) as any[];
       const rowsOut: Array<{ month: string; status: StatusOut }> = [];
@@ -73,22 +66,18 @@ export async function GET(req: Request) {
         rowsOut.push({ month: mk, status: st });
       }
 
+      // ✅ même si vide, on renvoie la source (debug)
       return NextResponse.json({
         rows: rowsOut,
         source: { table: cand.table, userCol: cand.userCol },
       });
     }
 
-    // Rien trouvé (table différente) => on renvoie vide (l’UI mettra pending)
     return NextResponse.json({
       rows: [],
-      error:
-        "Aucun statut trouvé (table inconnue). Vérifie la table utilisée par /api/admin/timesheets/month-status.",
+      error: "Aucun statut trouvé (table inconnue).",
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: String(err?.message ?? err), stack: err?.stack ?? null },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: String(err?.message ?? err), stack: err?.stack ?? null }, { status: 500 });
   }
 }
