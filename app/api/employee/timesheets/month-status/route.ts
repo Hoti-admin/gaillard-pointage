@@ -3,8 +3,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-type StatusOut = "pending" | "approved";
-
 function normYM(v: any): string {
   const s = String(v ?? "");
   const m = s.match(/(\d{4})-(\d{1,2})/);
@@ -14,31 +12,7 @@ function normYM(v: any): string {
   return `${yy}-${mm}`;
 }
 
-function normalizeStatus(v: any): StatusOut {
-  const s = String(v ?? "").toLowerCase().trim();
-  if (s === "approved" || s === "valid" || s === "validated" || s === "ok") return "approved";
-  if (v === true || v === 1) return "approved";
-  return "pending";
-}
-
-// ✅ évite TS deep (pas de "as const")
-const CANDIDATES: Array<{ table: string; userCol: string }> = [
-  { table: "timesheets_month_status", userCol: "user_id" },
-  { table: "timesheets_month_status", userCol: "employee_id" },
-  { table: "timesheet_month_status", userCol: "user_id" },
-  { table: "timesheet_month_status", userCol: "employee_id" },
-  { table: "timesheets_status", userCol: "user_id" },
-  { table: "timesheet_status", userCol: "user_id" },
-];
-
-function pickMonthField(row: any) {
-  return row?.month ?? row?.month_key ?? row?.period ?? row?.work_month ?? row?.pay_month ?? row?.request_month ?? null;
-}
-function pickStatusField(row: any) {
-  return row?.status ?? row?.state ?? row?.month_status ?? row?.is_approved ?? row?.approved ?? null;
-}
-
-// ✅ fallback si getUser() échoue : decode JWT payload pour récupérer sub
+// fallback decode sub (au cas où)
 function decodeSubFromJWT(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -47,7 +21,7 @@ function decodeSubFromJWT(token: string): string | null {
     const padded = payload + "===".slice((payload.length + 3) % 4);
     const json = Buffer.from(padded, "base64").toString("utf8");
     const obj = JSON.parse(json);
-    return String(obj?.sub ?? obj?.user_id ?? "") || null;
+    return String(obj?.sub ?? "") || null;
   } catch {
     return null;
   }
@@ -59,63 +33,32 @@ export async function GET(req: Request) {
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
-    // 1) Essai normal Supabase (le plus sûr)
     let user_id: string | null = null;
     const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
     if (!userErr && userData?.user?.id) user_id = userData.user.id;
-
-    // 2) Fallback decode JWT (évite le blocage en prod)
     if (!user_id) user_id = decodeSubFromJWT(token);
 
-    if (!user_id) {
-      return NextResponse.json(
-        { error: "UNAUTHORIZED", detail: userErr?.message ?? "Cannot resolve user_id" },
-        { status: 401 }
-      );
-    }
+    if (!user_id) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
     const year = String(searchParams.get("year") || new Date().getFullYear());
 
-    for (const cand of CANDIDATES) {
-      // cast any => évite TS deep
-      const q: any = (supabaseAdmin as any)
-        .from(cand.table)
-        .select("*")
-        .eq(cand.userCol, user_id)
-        .limit(500);
+    const { data, error } = await supabaseAdmin
+      .from("timesheet_month_status")
+      .select("month,status")
+      .eq("user_id", user_id)
+      .like("month", `${year}-%`)
+      .order("month", { ascending: true });
 
-      const { data, error } = await q;
-      if (error) continue;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-      const rowsIn = (data ?? []) as any[];
-      const rowsOut: Array<{ month: string; status: StatusOut }> = [];
+    const rows = (data ?? []).map((r: any) => ({
+      month: normYM(r.month),
+      status: String(r.status) === "approved" ? "approved" : "pending",
+    }));
 
-      for (const r of rowsIn) {
-        const mk = normYM(pickMonthField(r));
-        if (!mk) continue;
-        if (!mk.startsWith(year + "-")) continue;
-
-        const st = normalizeStatus(pickStatusField(r));
-        rowsOut.push({ month: mk, status: st });
-      }
-
-      rowsOut.sort((a, b) => a.month.localeCompare(b.month));
-
-      return NextResponse.json({
-        rows: rowsOut,
-        source: { table: cand.table, userCol: cand.userCol },
-      });
-    }
-
-    return NextResponse.json({
-      rows: [],
-      error: "Aucun statut trouvé (table inconnue).",
-    });
+    return NextResponse.json({ rows });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: String(err?.message ?? err), stack: err?.stack ?? null },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: String(err?.message ?? err), stack: err?.stack ?? null }, { status: 500 });
   }
 }
