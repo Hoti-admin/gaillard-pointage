@@ -361,8 +361,9 @@ export default function AdminReviewPage() {
       return;
     }
 
+    setMonthStatus("approved");
     setMsg("✅ Mois validé.");
-    loadMonthData();
+    await loadMonthData();
   }
 
   // ✅ NOUVEAU : Valider + générer PDF
@@ -411,8 +412,8 @@ export default function AdminReviewPage() {
       window.open(u, "_blank", "noopener,noreferrer");
       setTimeout(() => URL.revokeObjectURL(u), 30000);
 
-      setMsg("✅ Mois validé + PDF généré.");
       setMonthStatus("approved");
+      setMsg("✅ Mois validé + PDF généré.");
     } catch (e: any) {
       setMsg("✅ Mois validé, mais erreur PDF: " + String(e?.message ?? e));
     } finally {
@@ -515,9 +516,9 @@ export default function AdminReviewPage() {
                   const j = await res.json().catch(() => ({}));
                   setMsg("Erreur: " + (j?.error || res.statusText));
                 } else {
-                  setMsg("✅ Mois remis en attente.");
                   setMonthStatus("pending");
-                  loadMonthData();
+                  setMsg("✅ Mois remis en attente.");
+                  await loadMonthData();
                 }
               }}
               style={S.btnWarn}

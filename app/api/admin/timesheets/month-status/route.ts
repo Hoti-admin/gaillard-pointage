@@ -3,26 +3,19 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-function normYM(v: any): string {
-  const s = String(v ?? "");
-  const m = s.match(/(\d{4})-(\d{1,2})/);
-  if (!m) return "";
-  const yy = m[1];
-  const mm = String(parseInt(m[2], 10)).padStart(2, "0");
-  return `${yy}-${mm}`;
-}
-
 async function requireAdmin(accessToken: string) {
   const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(accessToken);
   if (userErr || !userData.user) return { ok: false as const, reason: "UNAUTHORIZED" };
 
-  const { data: prof } = await supabaseAdmin
+  const { data: prof, error: profErr } = await supabaseAdmin
     .from("profiles")
     .select("role,is_active")
     .eq("user_id", userData.user.id)
-    .single();
+    .maybeSingle();
 
+  if (profErr) return { ok: false as const, reason: profErr.message };
   if (!prof?.is_active || prof.role !== "admin") return { ok: false as const, reason: "FORBIDDEN" };
+
   return { ok: true as const };
 }
 
@@ -33,67 +26,48 @@ export async function GET(req: Request) {
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
     const admin = await requireAdmin(token);
-    if (!admin.ok) return NextResponse.json({ error: admin.reason }, { status: 403 });
+    if (!admin.ok) {
+      const status = admin.reason === "UNAUTHORIZED" ? 401 : admin.reason === "FORBIDDEN" ? 403 : 500;
+      return NextResponse.json({ error: admin.reason }, { status });
+    }
 
     const { searchParams } = new URL(req.url);
-    const year = String(searchParams.get("year") || new Date().getFullYear());
-    const user_id = String(searchParams.get("user_id") || "all");
+    const year = String(searchParams.get("year") ?? "").trim();
+    const user_id = String(searchParams.get("user_id") ?? "all").trim() || "all";
+
+    if (!/^\d{4}$/.test(year)) {
+      return NextResponse.json({ error: "year requis (YYYY)" }, { status: 400 });
+    }
+
+    let query = supabaseAdmin
+      .from("timesheet_months")
+      .select("user_id,month,status,approved_at")
+      .gte("month", `${year}-01`)
+      .lte("month", `${year}-12`)
+      .order("month", { ascending: true })
+      .order("user_id", { ascending: true });
 
     if (user_id !== "all") {
-      // ✅ par employé : renvoyer les mois de l'année
-      const { data, error } = await supabaseAdmin
-        .from("timesheet_month_status")
-        .select("month,status")
-        .eq("user_id", user_id)
-        .like("month", `${year}-%`)
-        .order("month", { ascending: true });
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      const rows = (data ?? []).map((r: any) => ({ month: normYM(r.month), status: r.status === "approved" ? "approved" : "pending" }));
-      return NextResponse.json({ rows });
+      query = query.eq("user_id", user_id);
     }
 
-    // ✅ "all" : un mois est "approved" seulement si tous les employés actifs sont approved
-    const { data: profs, error: pErr } = await supabaseAdmin
-      .from("profiles")
-      .select("user_id,is_active")
-      .eq("is_active", true);
-
-    if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
-
-    const users = (profs ?? []).map((p: any) => String(p.user_id));
-    if (users.length === 0) return NextResponse.json({ rows: [] });
-
-    const { data: st, error: sErr } = await supabaseAdmin
-      .from("timesheet_month_status")
-      .select("user_id,month,status")
-      .in("user_id", users)
-      .like("month", `${year}-%`);
-
-    if (sErr) return NextResponse.json({ error: sErr.message }, { status: 500 });
-
-    // group by month
-    const byMonth = new Map<string, { approvedCount: number; total: number }>();
-    for (const uid of users) {
-      // total per month will be compared later
-    }
-    for (const r of (st ?? []) as any[]) {
-      const m = normYM(r.month);
-      if (!m) continue;
-      if (!byMonth.has(m)) byMonth.set(m, { approvedCount: 0, total: users.length });
-      if (String(r.status) === "approved") byMonth.get(m)!.approvedCount += 1;
+    const { data, error } = await query;
+    if (error) {
+      console.error("admin month-status error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const rows: Array<{ month: string; status: "pending" | "approved" }> = [];
-    for (let mm = 1; mm <= 12; mm++) {
-      const ym = `${year}-${String(mm).padStart(2, "0")}`;
-      const g = byMonth.get(ym);
-      const ok = g ? g.approvedCount >= g.total : false;
-      rows.push({ month: ym, status: ok ? "approved" : "pending" });
-    }
-
-    return NextResponse.json({ rows });
+    return NextResponse.json({
+      ok: true,
+      rows: (data ?? []).map((row: any) => ({
+        user_id: String(row.user_id),
+        month: String(row.month).slice(0, 7),
+        status: String(row.status) === "approved" ? "approved" : "pending",
+        approved_at: row.approved_at ?? null,
+      })),
+    });
   } catch (err: any) {
-    return NextResponse.json({ error: String(err?.message ?? err), stack: err?.stack ?? null }, { status: 500 });
+    console.error("admin month-status unexpected error:", err);
+    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }

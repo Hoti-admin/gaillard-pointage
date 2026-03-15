@@ -3,23 +3,6 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
-type StatusOut = "pending" | "approved";
-
-function normYM(v: any): string {
-  const s = String(v ?? "");
-  const m = s.match(/(\d{4})-(\d{1,2})/);
-  if (!m) return "";
-  const yy = m[1];
-  const mm = String(parseInt(m[2], 10)).padStart(2, "0");
-  return `${yy}-${mm}`;
-}
-
-function normalizeStatus(v: any): StatusOut {
-  const s = String(v ?? "").toLowerCase().trim();
-  return s === "approved" ? "approved" : "pending";
-}
-
-// fallback decode sub (au cas où getUser échoue en prod)
 function decodeSubFromJWT(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -34,51 +17,67 @@ function decodeSubFromJWT(token: string): string | null {
   }
 }
 
+async function requireEmployee(accessToken: string) {
+  let userId: string | null = null;
+
+  const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(accessToken);
+  if (!userErr && userData?.user?.id) userId = userData.user.id;
+  if (!userId) userId = decodeSubFromJWT(accessToken);
+  if (!userId) return { ok: false as const, reason: "UNAUTHORIZED" };
+
+  const { data: prof, error: profErr } = await supabaseAdmin
+    .from("profiles")
+    .select("user_id,is_active")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (profErr) return { ok: false as const, reason: profErr.message };
+  if (!prof?.is_active) return { ok: false as const, reason: "FORBIDDEN" };
+
+  return { ok: true as const, userId };
+}
+
 export async function GET(req: Request) {
   try {
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
 
-    // 1) user_id via Supabase
-    let user_id: string | null = null;
-    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
-    if (!userErr && userData?.user?.id) user_id = userData.user.id;
-
-    // 2) fallback decode JWT
-    if (!user_id) user_id = decodeSubFromJWT(token);
-
-    if (!user_id) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
+    const employee = await requireEmployee(token);
+    if (!employee.ok) {
+      const status = employee.reason === "UNAUTHORIZED" ? 401 : employee.reason === "FORBIDDEN" ? 403 : 500;
+      return NextResponse.json({ error: employee.reason }, { status });
+    }
 
     const { searchParams } = new URL(req.url);
-    const year = String(searchParams.get("year") || new Date().getFullYear());
+    const year = String(searchParams.get("year") ?? "").trim();
+    if (!/^\d{4}$/.test(year)) {
+      return NextResponse.json({ error: "year requis (YYYY)" }, { status: 400 });
+    }
 
-    // ✅ LA BONNE TABLE : timesheet_months
     const { data, error } = await supabaseAdmin
       .from("timesheet_months")
-      .select("month,status")
-      .eq("user_id", user_id)
-      .like("month", `${year}-%`)
+      .select("month,status,approved_at")
+      .eq("user_id", employee.userId)
+      .gte("month", `${year}-01`)
+      .lte("month", `${year}-12`)
       .order("month", { ascending: true });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    const rows = (data ?? [])
-      .map((r: any) => ({
-        month: normYM(r.month),
-        status: normalizeStatus(r.status),
-      }))
-      .filter((r) => r.month && r.month.startsWith(year + "-"))
-      .sort((a, b) => a.month.localeCompare(b.month));
+    if (error) {
+      console.error("employee month-status error:", error);
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
 
     return NextResponse.json({
-      rows,
-      source: { table: "timesheet_months" },
+      ok: true,
+      rows: (data ?? []).map((row: any) => ({
+        month: String(row.month).slice(0, 7),
+        status: String(row.status) === "approved" ? "approved" : "pending",
+        approved_at: row.approved_at ?? null,
+      })),
     });
   } catch (err: any) {
-    return NextResponse.json(
-      { error: String(err?.message ?? err), stack: err?.stack ?? null },
-      { status: 500 }
-    );
+    console.error("employee month-status unexpected error:", err);
+    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
