@@ -82,6 +82,8 @@ export default function AdminReviewPage() {
   const [replaceLogs, setReplaceLogs] = useState(true);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
+  const [showOnlyLogs, setShowOnlyLogs] = useState(false);
+  const [showOnlyPendingDays, setShowOnlyPendingDays] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -343,8 +345,17 @@ export default function AdminReviewPage() {
     await exportPDF();
   }
 
-  const approvedDays = Object.values(rows).filter((r) => r.day_type === "work").length;
+  const workDays = Object.values(rows).filter((r) => r.day_type === "work").length;
   const logsDays = Object.values(rows).filter((r) => r.has_logs).length;
+  const expenseDays = Object.values(rows).filter((r) => r.travel_chf > 0 || r.meals_qty > 0 || r.misc_chf > 0).length;
+
+  const visibleDates = allDatesOfMonth(month).filter((d) => {
+    const r = rows[d];
+    if (!r) return false;
+    if (showOnlyLogs && !r.has_logs) return false;
+    if (showOnlyPendingDays && r.day_type === "work") return false;
+    return true;
+  });
 
   if (checking) return <main style={pageStyle}>Chargement…</main>;
   if (!session) return null;
@@ -357,7 +368,7 @@ export default function AdminReviewPage() {
             <img src="/gaillard-logo.png" alt="Gaillard Jean-Paul SA" style={{ ...logoStyle, width: isMobile ? 104 : 180 }} />
             <div>
               <h1 style={{ ...titleStyle, fontSize: isMobile ? 28 : 32 }}>Contrôle bordereau</h1>
-              <div style={subStyle}>Version premium admin — responsive mobile, validation et export propres.</div>
+              <div style={subStyle}>Version premium admin — responsive mobile, validation plus claire et filtres rapides.</div>
             </div>
           </div>
           <a href="/admin" style={backLinkStyle}>⬅ Admin</a>
@@ -370,12 +381,13 @@ export default function AdminReviewPage() {
               {monthStatus === "approved" ? "Mois validé" : "Mois en attente"}
             </div>
             <div style={{ color: THEME.sub, marginTop: 8, fontWeight: 700 }}>
-              Sélectionne l’employé, corrige les journées, puis valide et exporte le bordereau.
+              Sélectionne l’employé, corrige les journées, puis valide et exporte le bordereau final.
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
               <span style={statusBadge(monthStatus)}>{monthStatus === "approved" ? "● Validé" : "● En attente"}</span>
-              <span style={pillStyle(THEME.blue)}>{approvedDays} jours travail</span>
+              <span style={pillStyle(THEME.blue)}>{workDays} jours travail</span>
               <span style={pillStyle(THEME.amber)}>{logsDays} jours avec logs</span>
+              <span style={pillStyle(THEME.green)}>{expenseDays} jours avec frais</span>
             </div>
           </div>
 
@@ -406,12 +418,24 @@ export default function AdminReviewPage() {
           </div>
         </div>
 
+        <div style={{ ...filtersWrapStyle, marginTop: 16 }}>
+          <button onClick={() => setShowOnlyLogs((v) => !v)} style={showOnlyLogs ? btnSelected : btnGhost}>
+            {showOnlyLogs ? "✓" : "○"} Jours avec logs
+          </button>
+          <button onClick={() => setShowOnlyPendingDays((v) => !v)} style={showOnlyPendingDays ? btnSelected : btnGhost}>
+            {showOnlyPendingDays ? "✓" : "○"} Jours non travail
+          </button>
+          <button onClick={() => { setShowOnlyLogs(false); setShowOnlyPendingDays(false); }} style={btnGhost}>
+            Réinitialiser filtres
+          </button>
+        </div>
+
         <div style={{ ...actionsGridStyle, gridTemplateColumns: isMobile ? "1fr" : "repeat(5, minmax(0,1fr))" }}>
           <button onClick={loadMonthData} style={btnGhost} disabled={loading}>🔄 Recharger</button>
           <button onClick={exportXLSX} style={btnPrimary} disabled={loading}>📗 Export Excel</button>
           <button onClick={exportPDF} style={btnGhost} disabled={loading}>📄 Export PDF</button>
           <button onClick={validateAndPdf} style={btnOk} disabled={loading}>✅ Valider + PDF</button>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "1fr 1fr", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <button onClick={() => setMonthApproval("approved")} style={btnOk} disabled={loading || monthStatus === "approved"}>✅ Valider</button>
             <button onClick={() => setMonthApproval("pending")} style={btnWarn} disabled={loading}>↩ Attente</button>
           </div>
@@ -425,11 +449,11 @@ export default function AdminReviewPage() {
               <div style={eyebrowStyle}>Jours du mois</div>
               <h2 style={{ margin: "4px 0 0", fontSize: isMobile ? 22 : 26 }}>Correction journalière</h2>
             </div>
-            <div style={{ color: THEME.sub, fontWeight: 800 }}>Mobile optimisé : chaque jour passe en carte verticale sur petit écran.</div>
+            <div style={{ color: THEME.sub, fontWeight: 800 }}>{visibleDates.length} jour(s) affiché(s)</div>
           </div>
 
           <div style={{ display: "grid", gap: 14, marginTop: 16 }}>
-            {allDatesOfMonth(month).map((d) => {
+            {visibleDates.map((d) => {
               const r = rows[d];
               if (!r) return null;
               const showWork = r.day_type === "work";
@@ -580,10 +604,12 @@ const cardShell: CSSProperties = { background: "linear-gradient(180deg, rgba(17,
 const eyebrowStyle: CSSProperties = { color: THEME.sub, fontWeight: 900, textTransform: "uppercase", letterSpacing: 1.1, fontSize: 12 };
 const fieldsGridStyle: CSSProperties = { display: "grid", gap: 12 };
 const actionsGridStyle: CSSProperties = { display: "grid", gap: 12, marginTop: 16 };
+const filtersWrapStyle: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
 const labelStyle: CSSProperties = { display: "block", color: THEME.sub, fontWeight: 900, marginBottom: 6 };
 const inputStyle: CSSProperties = { width: "100%", padding: 12, borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, outline: "none" };
 const btnPrimary: CSSProperties = { width: "100%", padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.red}`, background: THEME.red, color: "#fff", fontWeight: 900, cursor: "pointer" };
 const btnGhost: CSSProperties = { width: "100%", padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, color: THEME.text, fontWeight: 900, cursor: "pointer" };
+const btnSelected: CSSProperties = { width: "auto", padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.blue}`, background: "rgba(96,165,250,0.10)", color: THEME.text, fontWeight: 900, cursor: "pointer" };
 const btnOk: CSSProperties = { width: "100%", padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.green}`, background: "rgba(34,197,94,0.10)", color: THEME.text, fontWeight: 900, cursor: "pointer" };
 const btnWarn: CSSProperties = { width: "100%", padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.amber}`, background: "rgba(245,158,11,0.10)", color: THEME.text, fontWeight: 900, cursor: "pointer" };
 const messageStyle: CSSProperties = { marginTop: 14, padding: "12px 14px", borderRadius: 14, border: `1px solid ${THEME.border}`, background: THEME.card2, fontWeight: 800, whiteSpace: "pre-wrap" };
