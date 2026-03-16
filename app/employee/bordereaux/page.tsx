@@ -53,6 +53,10 @@ function useIsMobile() {
   return isMobile;
 }
 
+function normalizeStatus(value: unknown): TimesheetStatus {
+  return value === "approved" ? "approved" : "pending";
+}
+
 export default function EmployeeBordereauxPage() {
   const isMobile = useIsMobile();
   const now = new Date();
@@ -82,7 +86,7 @@ export default function EmployeeBordereauxPage() {
       return {
         value: ym,
         label: monthLabelFR(ym),
-        status: statusMap.get(ym) ?? "pending",
+        status: statusMap.get(ym) ?? ("pending" as TimesheetStatus),
       };
     });
   }, [selectedYear, statusMap]);
@@ -95,7 +99,8 @@ export default function EmployeeBordereauxPage() {
     [rows]
   );
 
-  const selectedStatus = statusMap.get(selectedMonth) ?? "pending";
+  const selectedStatus: TimesheetStatus =
+    statusMap.get(selectedMonth) ?? "pending";
   const canDownloadSelected = selectedStatus === "approved";
 
   async function fetchStatuses(yearToLoad: number) {
@@ -128,19 +133,21 @@ export default function EmployeeBordereauxPage() {
 
       const j = await res.json();
 
-      const nextRows: MonthItem[] = ((j?.rows ?? []) as any[])
-        .map((r) => ({
+      const rawRows = Array.isArray(j?.rows) ? j.rows : [];
+
+      const nextRows: MonthItem[] = rawRows
+        .map((r: any): MonthItem => ({
           month: String(r?.month ?? "").slice(0, 7),
-          status: r?.status === "approved" ? "approved" : "pending",
+          status: normalizeStatus(r?.status),
         }))
-        .filter((r) => /^\d{4}-\d{2}$/.test(r.month));
+        .filter((r: MonthItem) => /^\d{4}-\d{2}$/.test(r.month));
 
       setRows(nextRows);
 
-      const apiYears = ((j?.years ?? []) as Array<string | number>)
-        .map((y) => String(y))
-        .filter((y) => /^\d{4}$/.test(y))
-        .map((y) => Number(y));
+      const apiYears = (Array.isArray(j?.years) ? j.years : [])
+        .map((y: unknown) => String(y))
+        .filter((y: string) => /^\d{4}$/.test(y))
+        .map((y: string) => Number(y));
 
       const mergedYears = Array.from(
         new Set([
