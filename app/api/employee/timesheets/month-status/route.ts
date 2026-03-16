@@ -3,6 +3,11 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
 
+type RowOut = {
+  month: string;
+  status: "pending" | "approved";
+};
+
 function decodeSubFromJWT(token: string): string | null {
   try {
     const parts = token.split(".");
@@ -45,39 +50,38 @@ export async function GET(req: Request) {
 
     const employee = await requireEmployee(token);
     if (!employee.ok) {
-      const status = employee.reason === "UNAUTHORIZED" ? 401 : employee.reason === "FORBIDDEN" ? 403 : 500;
-      return NextResponse.json({ error: employee.reason }, { status });
+      return NextResponse.json({ error: employee.reason }, { status: employee.reason === "UNAUTHORIZED" ? 401 : 403 });
     }
 
     const { searchParams } = new URL(req.url);
     const year = String(searchParams.get("year") ?? "").trim();
-    if (!/^\d{4}$/.test(year)) {
-      return NextResponse.json({ error: "year requis (YYYY)" }, { status: 400 });
-    }
 
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("timesheet_months")
-      .select("month,status,approved_at")
+      .select("month,status")
       .eq("user_id", employee.userId)
-      .gte("month", `${year}-01`)
-      .lte("month", `${year}-12`)
       .order("month", { ascending: true });
 
+    if (/^\d{4}$/.test(year)) {
+      query = query.gte("month", `${year}-01`).lte("month", `${year}-12`);
+    }
+
+    const { data, error } = await query;
     if (error) {
       console.error("employee month-status error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      ok: true,
-      rows: (data ?? []).map((row: any) => ({
-        month: String(row.month).slice(0, 7),
-        status: String(row.status) === "approved" ? "approved" : "pending",
-        approved_at: row.approved_at ?? null,
-      })),
-    });
-  } catch (err: any) {
-    console.error("employee month-status unexpected error:", err);
-    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
+    const rows: RowOut[] = (data ?? []).map((r: any) => ({
+      month: String(r.month ?? "").slice(0, 7),
+      status: String(r.status) === "approved" ? "approved" : "pending",
+    }));
+
+    const years = Array.from(new Set(rows.map((r) => r.month.slice(0, 4)))).sort();
+
+    return NextResponse.json({ ok: true, rows, years });
+  } catch (error: any) {
+    console.error("employee month-status unexpected:", error);
+    return NextResponse.json({ error: String(error?.message ?? error) }, { status: 500 });
   }
 }

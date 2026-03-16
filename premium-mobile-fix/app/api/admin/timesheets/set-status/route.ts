@@ -11,36 +11,36 @@ async function requireAdmin(accessToken: string) {
     .from("profiles")
     .select("role,is_active")
     .eq("user_id", userData.user.id)
-    .maybeSingle();
+    .single();
 
-  if (profErr) return { ok: false as const, reason: profErr.message };
-  if (!prof?.is_active || prof.role !== "admin") return { ok: false as const, reason: "FORBIDDEN" };
+  if (profErr || !prof?.is_active || prof.role !== "admin") {
+    return { ok: false as const, reason: "FORBIDDEN" };
+  }
 
   return { ok: true as const, adminId: userData.user.id };
 }
 
 function normalizeMonth(month: string) {
-  const match = String(month ?? "").match(/^(\d{4})-(\d{1,2})$/);
-  if (!match) return "";
-  return `${match[1]}-${String(parseInt(match[2], 10)).padStart(2, "0")}`;
+  const m = String(month ?? "").match(/^(\d{4})-(\d{1,2})$/);
+  if (!m) return "";
+  return `${m[1]}-${String(parseInt(m[2], 10)).padStart(2, "0")}`;
 }
 
 export async function POST(req: Request) {
   try {
     const auth = req.headers.get("authorization") || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) return NextResponse.json({ error: "Missing token" }, { status: 401 });
+    if (!token) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
-    const admin = await requireAdmin(token);
-    if (!admin.ok) {
-      return NextResponse.json({ error: admin.reason }, { status: admin.reason === "UNAUTHORIZED" ? 401 : 403 });
+    const adminCheck = await requireAdmin(token);
+    if (!adminCheck.ok) {
+      return NextResponse.json({ error: adminCheck.reason }, { status: adminCheck.reason === "UNAUTHORIZED" ? 401 : 403 });
     }
 
     const body = await req.json().catch(() => ({}));
-    const user_id = String(body?.user_id ?? "").trim();
+    const user_id = String(body?.user_id ?? "");
     const month = normalizeMonth(String(body?.month ?? ""));
-    const rawStatus = String(body?.status ?? "").trim().toLowerCase();
-    const status = rawStatus === "approved" ? "approved" : "pending";
+    const status = String(body?.status ?? "").toLowerCase() === "approved" ? "approved" : "pending";
 
     if (!user_id || !month) {
       return NextResponse.json({ error: "user_id et month sont requis" }, { status: 400 });
@@ -51,8 +51,7 @@ export async function POST(req: Request) {
       month,
       status,
       approved_at: status === "approved" ? new Date().toISOString() : null,
-      approved_by: status === "approved" ? admin.adminId : null,
-      updated_at: new Date().toISOString(),
+      approved_by: status === "approved" ? adminCheck.adminId : null,
     };
 
     const { data, error } = await supabaseAdmin
@@ -62,13 +61,11 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
-      console.error("admin set-status error:", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, row: data });
-  } catch (error: any) {
-    console.error("admin set-status unexpected:", error);
-    return NextResponse.json({ error: String(error?.message ?? error) }, { status: 500 });
+    return NextResponse.json({ ok: true, row: data, month_status: data.status });
+  } catch (err: any) {
+    return NextResponse.json({ error: String(err?.message ?? err) }, { status: 500 });
   }
 }
